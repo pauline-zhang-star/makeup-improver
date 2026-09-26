@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "makeup-refine"
+version = "0.1.0"
+description = "Local technical spike for subtle, masked makeup refinement"
+requires-python = ">=3.9"
+dependencies = ["Pillow>=10,<12", "numpy>=1.24,<3", "pydantic>=2.8,<3", "httpx>=0.27,<1", "python-dotenv>=1.0,<2"]
+
+[project.optional-dependencies]
+landmarks = ["mediapipe>=0.10.21,<0.11"]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+makeup-refine = "makeup_refine.cli:main"
+makeup-check = "makeup_refine.check_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

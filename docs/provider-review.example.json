@@ -1,0 +1,9 @@
+{
+  "provider": "openai",
+  "edit_model": "REPLACE_WITH_EVALUATED_MODEL",
+  "reviewed_at": null,
+  "face_editing_permitted": false,
+  "mask_editing_supported": false,
+  "evidence": "",
+  "notes": "Record policy evidence for consented real-user face edits and a tested mask request. Do not mark passed merely because an adapter exists."
+}

@@ -1,6 +1,7 @@
 from pathlib import Path
 from io import BytesIO
 import warnings
+import math
 import numpy as np
 from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
 from .models import SpikeError
@@ -8,6 +9,38 @@ from .models import SpikeError
 Image.MAX_IMAGE_PIXELS = 20_000_000
 SRGB_PROFILE = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
 SRGB_BYTES = SRGB_PROFILE.tobytes()
+
+
+def edit_canvas(image: Image.Image):
+    """Pad to GPT Image 2's size constraints without stretching or cropping input."""
+    w, h = image.size
+    scale = max(1., math.sqrt(655360 / (w * h)))
+    cw, ch = math.ceil(w * scale / 16) * 16, math.ceil(h * scale / 16) * 16
+    cw, ch = max(cw, math.ceil(ch / 3 / 16) * 16), max(ch, math.ceil(cw / 3 / 16) * 16)
+    if max(cw, ch) > 3840 or cw * ch > 8294400:
+        raise SpikeError('UNSUPPORTED_IMAGE', 'Image canvas exceeds supported model dimensions.')
+    left, top = (cw-w)//2, (ch-h)//2
+    pixels = np.pad(np.asarray(image), ((top,ch-h-top),(left,cw-w-left),(0,0)), mode='edge')
+    padded = Image.fromarray(pixels)
+    padded.info['icc_profile'] = SRGB_BYTES
+    return padded, (left, top, left+w, top+h)
+
+
+def scaled_edit_canvas(image: Image.Image) -> Image.Image:
+    """Meet GPT Image 2's size limits without inventing a border around a face."""
+    w, h = image.size
+    scale = max(1., math.sqrt(655360 / (w * h)))
+    cw, ch = math.ceil(w * scale / 16) * 16, math.ceil(h * scale / 16) * 16
+    while cw * ch < 655360:
+        if cw / w <= ch / h:
+            cw += 16
+        else:
+            ch += 16
+    if max(cw, ch) > 3840 or max(cw / ch, ch / cw) > 3 or cw * ch > 8294400:
+        raise SpikeError('UNSUPPORTED_IMAGE', 'Image canvas exceeds supported model dimensions.')
+    result = image.resize((cw, ch), Image.Resampling.LANCZOS) if (cw, ch) != image.size else image.copy()
+    result.info['icc_profile'] = SRGB_BYTES
+    return result
 
 
 def to_srgb(image: Image.Image) -> Image.Image:

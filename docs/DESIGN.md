@@ -1,5 +1,9 @@
 # AI Makeup Refine — MVP Design Doc
 
+> Implementation revision: [IMAGE_FIRST_FLOW.md](IMAGE_FIRST_FLOW.md) describes
+> the current user-approved flow and supersedes the analysis-first, three-area-only
+> behavior below. This original design remains as historical context for the legacy experiment.
+
 ## 1. Purpose
 
 Build an iOS-first mobile app that lets a user upload or take a selfie with their current makeup.

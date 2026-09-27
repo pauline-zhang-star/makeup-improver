@@ -1,8 +1,8 @@
-# Makeup Refine — local technical spike
+# Makeup Refine — image-first prototype
 
-Implementation of Phase 1 of [the supplied design](docs/DESIGN.md). Takes one local selfie, validates it, runs combined makeup analysis/planning, derives feature masks with MediaPipe Face Landmarker, calls a masked image editor, composites the result, and writes a photo plus structured JSON. Provider interfaces allow replacing analysis, editing, and landmark detection independently.
+The current product flow is **Selfie → Optional Style (Auto) → Generate → Before/After Slider → How to Achieve This Look**. The image editor receives the original selfie and style directly. Only after the final photograph exists does a separate vision call compare the original and enhanced images and explain the observed makeup changes. No makeup questionnaire, intermediate advice plan, account system, server, or database is involved.
 
-**Status: experimental implementation, not a validated MVP.** No backend or mobile app is built yet. Real-image subtlety, identity, landmark reliability, provider policy, and mask-edit quality must pass the design's Phase 1 review before proceeding. The first user-authorized trial passed numerical checks but was rejected visually: the loader had discarded a Display P3 profile, changing the apparent tone, and the eyeshadow adjustment was not useful. Color management is now corrected and regression-tested; human acceptance and broader test-set evaluation remain pending.
+**Status: local Python prototype, not an iOS app.** The revised flow is implemented and covered by mocked-provider tests. Prior Auto trials exposed lip-step omission and facial drift. Explicit assessments fixed the omission on an earlier saved pair; face-anchored compositing and measured lip-boundary blending now address later drift and edge artifacts. A complete Korean Soft run generated an image and steps, but manual review found visible eye-region seams and overconfident text claims. Its saved candidate has since been recomposited locally with full-face tone matching and automatic lip-edge repair, retaining the fuller generated lip shape. The repaired image has no fresh comparison instructions. The original masked-edit experiment is preserved as `makeup-refine-legacy`. [The revised flow and limitations](docs/IMAGE_FIRST_FLOW.md) supersede conflicting behavior in [the original design](docs/DESIGN.md).
 
 ## Install
 
@@ -34,7 +34,48 @@ JPEGs containing multiple pictures (MPO, including phone HDR JPEGs) use only the
 
 On macOS, MediaPipe can initialize graphics services even when CPU inference is selected. If running inside a restricted sandbox causes a native graphics error, run this local check from a normal Terminal. In a restricted environment, set `MPLCONFIGDIR` to a writable cache directory if Matplotlib reports a cache-permission warning.
 
-## Run a consented test photo
+## Run the current image-first flow
+
+Copy `.env.example` to `.env` in the project root, beside `pyproject.toml`, and set `OPENAI_API_KEY`. Existing environment values take precedence. The file is ignored by Git. Reinstall the editable package after updating to register both commands:
+
+```sh
+source .venv/bin/activate
+pip install -e '.[landmarks,dev]'
+makeup-refine /absolute/path/to/selfie.jpeg \
+  --output outputs/look-001 \
+  --landmark-model models/face_landmarker.task \
+  --vision-model YOUR_VISION_MODEL \
+  --edit-model YOUR_IMAGE_EDIT_MODEL
+```
+
+Omit `--style` for **Auto**, or select `Natural`, `Work / Polished`, `Korean Soft`, `Fresh`, `Date Night`, `Sophisticated`, or `Soft Glam`; quote names containing spaces, e.g. `--style "Soft Glam"`. All options use the same pipeline and build on existing makeup where appropriate. Model names stay explicit; use models enabled for your API account.
+
+Auto uses the conservative face-anchored mask. Any explicitly selected style uses a wider cosmetic mask around the brows, eyes, nose, cheeks and lip outline; eye interiors and the mouth opening remain protected. Selected styles also transfer a bounded, low-frequency complexion tone across facial skin to reduce visible oval seams while retaining original skin texture. Fixed circular cutouts below the nostrils were removed because they caused dark spots against that complexion layer. The initial width multiplier is 1.25 and complexion strength is 0.6; neither has been calibrated for appearance quality. The result records `maskCoverageFraction`, `faceBaseCoverageFraction`, and `faceBaseStrength` so coverage can be inspected.
+
+Generated lip fullness and texture are retained. Local code detects both lip contours, checks the mouth opening, and tries three surrounding-skin margins. A Poisson blend matches the surrounding skin while preserving the generated lip gradients. Boundary jumps, broad and small skin patches, lip-detail loss, and final facial movement are checked automatically. The best passing result is kept; failure rejects the image instead of reverting to the original lip shape. Diagnostics are saved under `lipBlendQuality`. These heuristic thresholds still need validation on a diverse portrait set.
+
+To repeat local compositing and its checks on a saved candidate without any API call or manual coordinates:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m makeup_refine.recompose_cli outputs/previous-run \
+  --output outputs/repaired-run --landmark-model models/face_landmarker.task
+```
+
+This creates a fresh image pair and slider. Previous instructions are intentionally cleared because they have not been compared against the repaired image.
+
+The private output directory contains `originalImage.png`, `enhancedImage.png`, `result.json`, and `review.html`. The enhanced photograph is a single full image. The report compares the two separate images with a draggable divider and an accessible range slider. Instructions come from observed differences in eyebrows, eyeliner, lashes, eyeshadow, nose contour, blush, lips, or complexion; unchanged and low-confidence areas are omitted. No template advice is substituted when comparison fails.
+
+Generation makes one image-edit request, followed by one comparison request. An identical pixel result skips comparison. There are no automatic paid retries. If instructions fail, the image remains saved. Retry **only the comparison**:
+
+```sh
+makeup-refine --retry-instructions outputs/look-001 --vision-model YOUR_VISION_MODEL
+```
+
+The new path preserves color conversion, metadata stripping, local face/quality checks, and the dimension/landmark guard. It sends a face-anchored cosmetic mask with the original photo, including brow/eye placement, nose bridge and nostril-side contour, blush, and a lip-outline allowance. It aligns coherent whole-face recomposition and composites permitted makeup regions. The fuller lip contour is blended through a locally computed region; the original mouth opening is protected. Excessive mouth changes fail validation. Eye-region strength is controlled locally. Pixels outside the union of the cosmetic mask, adaptive lip region and optional complexion mask remain equal to the original. Non-affine face changes or excessive final landmark movement still fail; post-generation visual comparison and human review remain necessary. A detected non-makeup change marks the result rejected and suppresses its steps and comparison preview.
+
+For GPT Image 2, small inputs are proportionally enlarged to a valid canvas instead of being surrounded by artificial pixels. This avoids the padding-associated zoom observed on the 788 × 524 test photo. The old rejected candidate can be aligned and composited offline, but that recovery does not prove how a fresh masked API request will behave.
+
+## Run the legacy masked experiment
 
 The spike now separates generation strength from final presentation. See
 [the controlled-blending experiment](docs/BLENDING_SPIKE.md) for the full-strength
@@ -55,7 +96,7 @@ For a fresh checkout, copy `.env.example` to `.env` and replace the placeholder.
 Then run:
 
 ```sh
-makeup-refine private-fixtures/selfie.jpg \
+makeup-refine-legacy private-fixtures/selfie.jpg \
   --output outputs/trial-001 \
   --landmark-model models/face_landmarker.task \
   --vision-model YOUR_VISION_MODEL \
@@ -68,7 +109,7 @@ Outputs are `original.png` (orientation-normalized, metadata-stripped working im
 
 Photos are downscaled to a maximum 1024-pixel edge before paid calls. The complete frame is sent; cropping is disabled. The refined PNG matches this working original's dimensions, not necessarily the camera file's resolution. Provider output with different dimensions is rejected; no warping or silent resizing is used. Some image models have fixed output sizes, so arbitrary-aspect photos may fail this gate. Establish compatible model/dimension behavior during the spike before promoting an adapter.
 
-## Guarantees and limits
+## Legacy masked experiment: guarantees and limits
 
 - Cheap resolution, exposure, blur and face-count/size checks run before AI calls. Face-crop checks prevent a bright background hiding an underexposed face.
 - Pydantic rejects unknown fields, unsupported refinements, more than three changes, duplicate areas, and changes to uncertain makeup. Free-text instructions still require semantic review.

@@ -17,7 +17,7 @@ class Preflight:
     face_bounds: tuple[int, int, int, int]
 
 
-def check_image(image: Image.Image, detector: LandmarkProvider) -> Preflight:
+def check_face(image: Image.Image, detector: LandmarkProvider):
     if image.mode != "RGB" or min(image.size) < 256 or max(image.size) > 1024:
         raise SpikeError("UNSUPPORTED_IMAGE", "Normalize the image with load_image before processing.")
     quality_precheck(image)
@@ -28,6 +28,11 @@ def check_image(image: Image.Image, detector: LandmarkProvider) -> Preflight:
            int(p[:, 0].max() * w), int(p[:, 1].max() * h))
     # A bright or detailed background cannot substitute for a usable face crop.
     quality_precheck(image.crop(box))
+    return points, box
+
+
+def check_image(image: Image.Image, detector: LandmarkProvider) -> Preflight:
+    points, box = check_face(image, detector)
     masks = {area: make_mask(image.size, points, area)
              for area in ("eyeliner", "eyeshadow", "lips")}
     return Preflight(points, masks, box)

@@ -6,8 +6,10 @@ import httpx
 from PIL import Image
 from pydantic import ValidationError
 from .models import ALLOWED, Plan, SpikeError
-from .imaging import to_srgb
+from .imaging import to_srgb, scaled_edit_canvas
 from .art_direction import PLANNING_DIRECTION, RENDERING_DIRECTION
+from .look_models import MakeupStyle, LookComparison
+from .look_prompts import enhancement_prompt, comparison_prompt
 
 
 TECHNIQUES = {
@@ -36,6 +38,53 @@ class OpenAIProvider:
 
     def close(self):
         self.client.close()
+
+    def enhance(self, original, style=MakeupStyle.AUTO, mask=None):
+        """One direct edit, locally limited to face-anchored cosmetic regions."""
+        style = MakeupStyle(style or MakeupStyle.AUTO)
+        if mask is None or mask.mode != 'L' or mask.size != original.size:
+            raise SpikeError('QUALITY_CHECK_FAILED', 'A valid makeup mask is required.')
+        canvas = scaled_edit_canvas(original) if self.edit_model.startswith('gpt-image-2') else original
+        size = (f"{canvas.width}x{canvas.height}"
+                if self.edit_model.startswith("gpt-image-2") else "auto")
+        canvas_mask = mask.resize(canvas.size, Image.Resampling.NEAREST)
+        provider_mask = Image.new('RGBA', canvas.size, (0, 0, 0, 255))
+        provider_mask.putalpha(canvas_mask.point(lambda value: 0 if value else 255))
+        try:
+            response = self.client.post("images/edits", data={
+                "model": self.edit_model, "prompt": enhancement_prompt(style),
+                "n": "1", "size": size, "quality": "medium"},
+                files={"image": ("selfie.png", png(canvas), "image/png"),
+                       "mask": ("mask.png", png(provider_mask), "image/png")})
+            response.raise_for_status()
+            raw = base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
+            with Image.open(BytesIO(raw)) as enhanced:
+                if enhanced.size != canvas.size:
+                    raise SpikeError('QUALITY_CHECK_FAILED', 'The provider changed the requested canvas dimensions.')
+                converted = to_srgb(enhanced)
+                if converted.size != original.size:
+                    converted = converted.resize(original.size, Image.Resampling.LANCZOS)
+                return converted
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, OSError) as exc:
+            raise SpikeError("IMAGE_EDIT_FAILED", "Could not generate the enhanced photograph.") from exc
+
+    def explain_changes(self, original, enhanced):
+        """Explain the actual image pair, without knowledge of the requested style."""
+        content = []
+        for label, image in (("ORIGINAL", original), ("ENHANCED", enhanced)):
+            content.extend([{"type": "text", "text": label},
+                            {"type": "image_url", "image_url": {
+                                "url": "data:image/png;base64," + base64.b64encode(png(image)).decode(),
+                                "detail": "high"}}])
+        try:
+            response = self.client.post("chat/completions", json={
+                "model": self.vision_model, "response_format": {"type": "json_object"},
+                "messages": [{"role": "system", "content": comparison_prompt()},
+                             {"role": "user", "content": content}]})
+            response.raise_for_status()
+            return LookComparison.model_validate_json(response.json()["choices"][0]["message"]["content"])
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
+            raise SpikeError("EXPLANATION_FAILED", "The image is ready, but its makeup steps could not be verified.") from exc
 
     def analyze_and_plan(self, image):
         prompt = (

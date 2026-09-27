@@ -45,8 +45,8 @@ def validate_candidate_geometry(candidate, original, points, detector):
     if found.shape != reference.shape:
         raise SpikeError("QUALITY_CHECK_FAILED", "The candidate changed landmark topology.")
     maximum = float(np.linalg.norm(found - reference, axis=1).max())
-    # Check every landmark before blending, including points within the edit mask.
-    # Diluting a displaced mouth/eye can hide the numerical error but leave ghosts.
+    # Check every landmark in the final composite. Registration and a local
+    # mask must not leave a displaced mouth/eye or a doubled feature.
     if maximum > 0.012:
         raise SpikeError("QUALITY_CHECK_FAILED", "The candidate moved facial geometry; blending cannot repair it.")
     return maximum

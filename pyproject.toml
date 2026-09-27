@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "makeup-refine"
 version = "0.1.0"
-description = "Local technical spike for subtle, masked makeup refinement"
+description = "Image-first makeup enhancement and evidence-based instructions"
 requires-python = ">=3.9"
 dependencies = ["Pillow>=10,<12", "numpy>=1.24,<3", "pydantic>=2.8,<3", "httpx>=0.27,<1", "python-dotenv>=1.0,<2"]
 
@@ -15,6 +15,8 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 makeup-refine = "makeup_refine.cli:main"
+makeup-recompose = "makeup_refine.recompose_cli:main"
+makeup-refine-legacy = "makeup_refine.legacy_cli:main"
 makeup-check = "makeup_refine.check_cli:main"
 
 [tool.setuptools.packages.find]

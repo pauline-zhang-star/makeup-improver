@@ -8,6 +8,8 @@ from typing import Optional
 from PIL import Image
 from .imaging import to_srgb
 from .guidance_view import guidance_html
+from .look_view import look_steps_html
+from .look_annotations import after_annotations_html
 
 
 def data_url(image: Image.Image) -> str:
@@ -18,7 +20,7 @@ def data_url(image: Image.Image) -> str:
 
 def write_report(path: Path, original: Image.Image, *, masks: dict[str, Image.Image],
                  result: Optional[Image.Image] = None, changes: Optional[list[dict]] = None,
-                 outcome: str = "preflight") -> None:
+                 outcome: str = "preflight", look_result: Optional[dict] = None) -> None:
     before = data_url(original)
     cards = []
     for area, mask in masks.items():
@@ -29,13 +31,18 @@ def write_report(path: Path, original: Image.Image, *, masks: dict[str, Image.Im
                      f'<figcaption>{escape(area.title())} · candidate mask</figcaption></figure>')
     compare = ""
     if result is not None:
+        annotations = after_annotations_html(look_result, result.size) if look_result else ''
+        diagnostic = bool(look_result and look_result.get('status') == 'candidate_rejected')
+        after_alt = 'Rejected candidate for inspection only' if diagnostic else 'AI-refined photo'
+        coverage_label = 'Candidate shown' if diagnostic else 'Refined coverage'
+        end_label = 'Rejected candidate only' if diagnostic else 'Refined only'
         compare = f'''<section><h2>Compare the result</h2><p>Move the slider or use the arrow keys.</p>
-<div class="compare"><img src="{before}" alt="Original photo"><img id="refined" src="{data_url(result)}"
-alt="AI-refined photo"><span id="divider"></span></div>
-<label for="position">Refined coverage <output id="coverage">50%</output></label>
-<input id="position" type="range" min="0" max="100" value="50" aria-label="Refined image coverage">
-<div class="ends"><span>Original only</span><span>Refined only</span></div></section>'''
-    instructions = guidance_html(before, changes)
+<div class="compare"><img src="{before}" alt="Original photo"><div id="refined"><img src="{data_url(result)}"
+alt="{after_alt}">{annotations}</div><span id="divider"></span></div>
+<label for="position">{coverage_label} <output id="coverage">50%</output></label>
+<input id="position" type="range" min="0" max="100" value="50" aria-label="{coverage_label}">
+<div class="ends"><span>Original only</span><span>{end_label}</span></div></section>'''
+    instructions = look_steps_html(look_result) if look_result is not None else guidance_html(before, changes)
     html = '''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
@@ -45,15 +52,32 @@ main{max-width:1100px;padding:48px 24px;margin:auto}.eyebrow{color:#98556c;font-
 h1{font-family:Georgia,serif;font-weight:400;font-size:clamp(32px,5vw,52px);line-height:1.1;margin:12px 0 20px}
 h2{font-size:22px;font-weight:500}p{max-width:760px;color:#65575d}.notice{border-left:3px solid #b95d7d;padding:12px 18px;background:#fff}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}figure{margin:0}img{display:block;width:100%;height:auto;border-radius:12px}
-figcaption{padding:12px 0;color:#65575d;font-size:14px}section{margin-top:36px}.compare{position:relative;max-width:600px;overflow:hidden;border-radius:12px}
+figcaption{padding:12px 0;color:#65575d;font-size:14px}section{margin-top:36px}.compare{position:relative;max-width:600px;overflow:hidden;border-radius:12px;touch-action:pan-y;user-select:none}.compare img{pointer-events:none}
 #refined{position:absolute;inset:0;clip-path:inset(0 50% 0 0)}#divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:white;pointer-events:none}
+.after-annotations,.after-annotations svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.callout-line,.callout-halo{vector-effect:non-scaling-stroke;fill:none;stroke-dasharray:4 4;stroke-linecap:round}.callout-line{stroke:#842e59;stroke-width:1.6}.callout-halo{stroke:white;stroke-width:3.8;stroke-opacity:.9}
+.callout-number,.step-number{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#842e59;color:white;font:bold 12px/1 system-ui,sans-serif;border:1.5px solid white;box-shadow:0 1px 3px #0005}
+.callout-number{position:absolute;transform:translate(-50%,-50%)}.look-steps{list-style:none;padding:0}.look-steps li{display:flex;gap:12px;align-items:flex-start}.step-number{flex:none;margin-top:2px}.look-steps li p{margin-top:4px}
 input{display:block;width:100%;max-width:600px;accent-color:#98556c;min-height:44px}label{display:block;margin-top:12px}output{font-weight:600}.ends{display:flex;justify-content:space-between;max-width:600px;color:#65575d;font-size:13px}
 li{margin-bottom:18px}li p{margin-top:4px}footer{border-top:1px solid #ded4d8;margin-top:40px;padding-top:20px;color:#65575d;font-size:13px}
 @media(max-width:650px){.grid{grid-template-columns:1fr}main{padding:28px 18px}}
 </style><main><div class="eyebrow">Makeup Refine / Technical spike</div>
 <h1>A closer look, before the next step.</h1>
 '''
-    if outcome == "completed_no_changes":
+    if look_result is not None:
+        html = html.replace('A closer look, before the next step.', 'Your makeup look')
+        html += '<p>Style: ' + escape(look_result.get('requestedStyle', 'Auto')) + '</p>'
+        if look_result['status'] == 'candidate_rejected':
+            html += '<p class="notice">REJECTED CANDIDATE / 候选图未通过：面部关键点明显偏移。下面只供检查失败原因，不是可用的增强结果。</p>'
+        elif look_result['status'] == 'rejected':
+            html += '<p class="notice">The generated result needs review because changes beyond makeup were detected.</p>'
+            html += f'<figure style="max-width:600px"><img src="{before}" alt="Original photo"></figure>'
+            compare = ''
+        else:
+            html += '<p class="notice">Review the result for likeness and makeup quality. Automated checks cannot guarantee either.</p>'
+            if result is None:
+                html += f'<figure style="max-width:600px"><img src="{before}" alt="Original photo"></figure>'
+    elif outcome == "completed_no_changes":
         html += '<p class="notice">No supported refinement was found. The analysis did not identify a confident, useful makeup adjustment. No edited image was generated.</p>'
         html += f'<figure style="max-width:600px"><img src="{before}" alt="Original photo with correct sRGB color"><figcaption>Original · color-managed sRGB</figcaption></figure>'
     elif result is None:
@@ -82,5 +106,13 @@ li{margin-bottom:18px}li p{margin-top:4px}footer{border-top:1px solid #ded4d8;ma
         html += "".join(cards) + '</div></section>'
     html += '<footer>This report stays local and loads no external resources. It contains your photo; delete it with the other trial outputs when finished.</footer></main>'
     if result is not None:
-        html += '''<script>const slider=document.getElementById('position');slider.addEventListener('input',()=>{const value=Number(slider.value);document.getElementById('refined').style.clipPath=`inset(0 ${100-value}% 0 0)`;document.getElementById('divider').style.left=`${value}%`;document.getElementById('coverage').textContent=`${value}%`;});</script>'''
+        html += '''<script>const slider=document.getElementById('position');
+if(slider){const compare=document.querySelector('.compare');
+const update=()=>{const value=Number(slider.value);document.getElementById('refined').style.clipPath=`inset(0 ${100-value}% 0 0)`;document.getElementById('divider').style.left=`${value}%`;document.getElementById('coverage').textContent=`${value}%`;};
+slider.addEventListener('input',update);
+const move=(event)=>{const rect=compare.getBoundingClientRect();slider.value=String(Math.round(Math.max(0,Math.min(100,(event.clientX-rect.left)/rect.width*100))));update();};
+compare.addEventListener('pointerdown',event=>{if(event.button!==0)return;compare.setPointerCapture(event.pointerId);move(event);});
+compare.addEventListener('pointermove',event=>{if(compare.hasPointerCapture(event.pointerId))move(event);});
+compare.addEventListener('pointerup',event=>{if(compare.hasPointerCapture(event.pointerId))compare.releasePointerCapture(event.pointerId);});}
+</script>'''
     path.write_text(html, encoding="utf-8")

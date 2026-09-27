@@ -1,5 +1,17 @@
 # Phase 1 evaluation record
 
+Latest image-first trial (local case 009): one attached 788 × 524 portrait was
+submitted with Auto. The first edit was rejected by the landmark guard, but
+the old code discarded the returned candidate before it could be inspected.
+Candidate retention was added, then one further edit was made on the same photo.
+That candidate again failed geometry validation: maximum normalized landmark
+deviation 0.1111 versus the current 0.012 limit, concentrated around the brow.
+It is retained locally only for diagnosis and shown in a clearly labelled
+rejected-candidate comparison. No enhanced image or makeup steps were accepted.
+Future improvement should focus on preserving source geometry for this portrait;
+do not count a prompt-only intensity change or a relaxed landmark threshold as
+proof of preservation.
+
 Status: **local preflight tested on one supplied photo; Phase 2 prerequisites are not yet satisfied**.
 
 Local smoke check: Python 3.9.6, MediaPipe 0.10.35, Apple Silicon. The official

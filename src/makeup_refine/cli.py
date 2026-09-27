@@ -1,98 +1,112 @@
+"""Local image-first product flow. Legacy masked experiments live in legacy_cli."""
 import argparse
 import json
 from pathlib import Path
 import sys
-from .imaging import load_image, to_srgb
-from .models import Plan, SpikeError
-from .pipeline import Pipeline
-from .report import write_report
+from PIL import Image
 from .config import get_api_key
+from .imaging import load_image, to_srgb
+from .look_models import MakeupStyle
+from .look_pipeline import LookPipeline
+from .models import SpikeError
+from .report import write_report
+
+
+def save_review(directory, original, enhanced, report):
+    # Fixed local names; never accept provider-supplied output paths.
+    payload = {**report, 'originalImage': 'originalImage.png',
+               'enhancedImage': 'enhancedImage.png' if enhanced is not None else None,
+               'flow': 'image_first', 'humanReviewRequired': True,
+               'retention': 'Local files remain until you delete this directory.'}
+    temporary = directory / 'result.json.tmp'
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
+    temporary.replace(directory / 'result.json')
+    write_report(directory / 'review.html', original, masks={}, result=enhanced,
+                 look_result=payload)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Local makeup-refinement technical spike")
-    parser.add_argument("image", type=Path)
-    parser.add_argument("--output", type=Path, required=True, help="New private output directory")
-    parser.add_argument("--landmark-model", type=Path, required=True)
-    parser.add_argument("--vision-model", required=True)
-    parser.add_argument("--edit-model", required=True)
-    parser.add_argument("--plan-file", type=Path,
-                        help="Reuse a validated saved plan for a controlled experiment; skips paid analysis")
-    parser.add_argument("--max-edit-attempts", type=int, choices=(1, 2), default=2)
-    parser.add_argument("--blend-strength", type=float, default=0.5,
-                        help="Experimental local blend coefficient, greater than 0 and at most 1")
-    parser.add_argument("--provider-review", type=Path, required=True,
-                        help="JSON record of the provider's face-editing policy and mask capability review")
+    parser = argparse.ArgumentParser(description='Selfie → optional style → enhanced image → observed makeup steps')
+    parser.add_argument('image', type=Path, nargs='?')
+    parser.add_argument('--output', type=Path, help='New private output directory')
+    parser.add_argument('--style', choices=[s.value for s in MakeupStyle], default='Auto')
+    parser.add_argument('--landmark-model', type=Path)
+    parser.add_argument('--vision-model', required=True)
+    parser.add_argument('--edit-model')
+    parser.add_argument('--retry-instructions', type=Path,
+                        help='Compare the saved pair in this directory; never regenerate the image')
     args = parser.parse_args()
+    if args.retry_instructions:
+        if args.image or args.output or args.style != 'Auto':
+            parser.error('--retry-instructions cannot be combined with an image, output or style.')
+    elif not all((args.image, args.output, args.landmark_model, args.edit_model)):
+        parser.error('Generation requires image, --output, --landmark-model and --edit-model.')
     provider = detector = None
+    directory = None
+    original = enhanced = None
+    report = {}
     try:
-        if not 0 < args.blend_strength <= 1:
-            raise SpikeError("CONFIGURATION_ERROR", "--blend-strength must be greater than 0 and at most 1.")
-        review = json.loads(args.provider_review.read_text())
-        if not (isinstance(review, dict) and review.get("provider") == "openai" and review.get("face_editing_permitted") is True
-                and review.get("mask_editing_supported") is True and review.get("evidence")
-                and review.get("reviewed_at") and review.get("edit_model") == args.edit_model):
-            raise SpikeError("PROVIDER_REVIEW_REQUIRED", "Complete the provider review record before submitting photos.")
-        key = get_api_key()
-        if args.output.exists():
-            raise SpikeError("OUTPUT_EXISTS", "Choose a new output directory to avoid mixing sessions.")
-        original = load_image(args.image)
-        saved_plan = Plan.model_validate_json(args.plan_file.read_text()) if args.plan_file else None
-        class SavedPlanVision:
-            def analyze_and_plan(self, image):
-                return saved_plan
-        from .landmarks import MediaPipeLandmarks
         from .providers import OpenAIProvider
-        detector = MediaPipeLandmarks(str(args.landmark_model))
-        provider = OpenAIProvider(key, args.vision_model, args.edit_model)
-        args.output.mkdir(parents=True, mode=0o700)
-        original.save(args.output / "original.png")
-
-        def save_candidate(candidate, union, masks, plan, attempt):
-            filename = f"candidate-{attempt + 1}.png"
-            to_srgb(candidate).save(args.output / filename)
-            union.save(args.output / "mask.png")
-            regions = []
-            for change, region in zip(plan.changes, masks):
-                name = f"mask-{change.area}.png"
-                region.save(args.output / name)
-                regions.append({"area": change.area, "mask": name})
-            manifest = {"status": "geometry_checked_candidate", "original": "original.png",
-                        "candidate": filename, "mask": "mask.png", "regions": regions,
-                        "plan": plan.model_dump(), "attempt": attempt + 1,
-                        "blendSpace": "encoded_sRGB", "humanAccepted": False}
-            (args.output / "candidate.json").write_text(json.dumps(manifest, indent=2))
-
-        try:
-            result, mask, report = Pipeline(SavedPlanVision() if saved_plan else provider, provider, detector,
-                                            max_edit_attempts=args.max_edit_attempts,
-                                            blend_strength=args.blend_strength,
-                                            on_candidate=save_candidate).run(original)
-        except SpikeError as exc:
-            report = {"status": "failed", "errorCode": exc.code, "message": exc.message}
-            (args.output / "result.json").write_text(json.dumps(report, indent=2))
-            raise
-        original.save(args.output / "original.png")
-        if result is not None:
-            result.save(args.output / "refined.png")
-            mask.save(args.output / "mask.png")
-            write_report(args.output / "review.html", original, masks={"combined": mask},
-                         result=result, changes=report["changes"])
+        if args.retry_instructions:
+            directory = args.retry_instructions
+            report = json.loads((directory / 'result.json').read_text())
+            if (report.get('flow') != 'image_first' or report.get('enhancedImage') != 'enhancedImage.png'
+                    or report.get('originalImage') != 'originalImage.png'):
+                raise SpikeError('CONFIGURATION_ERROR', 'Use an image-first output containing both saved images.')
+            with Image.open(directory / 'originalImage.png') as image:
+                original = to_srgb(image)
+            with Image.open(directory / 'enhancedImage.png') as image:
+                enhanced = to_srgb(image)
+            provider = OpenAIProvider(get_api_key(), args.vision_model, report.get('editModel', ''))
+            # Explanation-only path has no detector and never uses the editor.
+            report.update(LookPipeline(provider, provider, None).explain(original, enhanced))
+            if report['status'] != 'instructions_unavailable':
+                report.pop('errorCode', None)
+                if report['status'] != 'rejected':
+                    report.pop('message', None)
+            report['visionModel'] = args.vision_model
         else:
-            write_report(args.output / "review.html", original, masks={}, outcome="completed_no_changes")
-        report.update(originalImage="original.png", refinedImage="refined.png" if result else None,
-                      analysisReused=bool(saved_plan),
-                      provider="openai", visionModel=args.vision_model, editModel=args.edit_model,
-                      retention="Local files remain until you delete this directory.")
-        (args.output / "result.json").write_text(json.dumps(report, indent=2))
-        print(json.dumps({"status": report["status"], "output": str(args.output)}))
-        return 0
+            if args.output.exists():
+                raise SpikeError('OUTPUT_EXISTS', 'Choose a new output directory to avoid mixing sessions.')
+            original = load_image(args.image)
+            from .landmarks import MediaPipeLandmarks
+            detector = MediaPipeLandmarks(str(args.landmark_model))
+            provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
+            args.output.mkdir(parents=True, mode=0o700)
+            directory = args.output
+            original.save(directory / 'originalImage.png')
+            report = {'status': 'generating', 'steps': [], 'requestedStyle': args.style,
+                      'visionModel': args.vision_model, 'editModel': args.edit_model,
+                      'provider': 'openai'}
+
+            def save_enhanced(image):
+                nonlocal enhanced
+                enhanced = image
+                enhanced.save(directory / 'enhancedImage.png')
+                report.update(status='enhanced_ready', imageEditCalls=1)
+                save_review(directory, original, enhanced, report)
+
+            def save_candidate(image):
+                # Keep rejected provider output for human diagnosis, never as an accepted result.
+                image.save(directory / 'candidateImage.png')
+                report['candidateImage'] = 'candidateImage.png'
+
+            enhanced, outcome = LookPipeline(provider, provider, detector, save_enhanced,
+                                             save_candidate).run(original, args.style)
+            report.update(outcome)
+        save_review(directory, original, enhanced, report)
+        print(json.dumps({'status': report['status'], 'output': str(directory)}))
+        return 1 if report['status'] == 'rejected' else 0
     except SpikeError as exc:
-        print(json.dumps({"status": "failed", "errorCode": exc.code, "message": exc.message}), file=sys.stderr)
+        failure = {'status': 'failed', 'errorCode': exc.code, 'message': exc.message}
+        if directory is not None and original is not None and not args.retry_instructions:
+            # Do not erase a usable image or successful prior session on retry failure.
+            save_review(directory, original, enhanced, {**report, **failure, 'steps': []})
+        print(json.dumps(failure), file=sys.stderr)
         return 1
     except (OSError, ValueError, ImportError, RuntimeError):
-        print(json.dumps({"status": "failed", "errorCode": "CONFIGURATION_ERROR",
-                          "message": "Check dependencies, file paths, model asset, and review JSON."}), file=sys.stderr)
+        print(json.dumps({'status': 'failed', 'errorCode': 'CONFIGURATION_ERROR',
+                          'message': 'Check dependencies, model names, local files and API key configuration.'}), file=sys.stderr)
         return 1
     finally:
         if provider:
@@ -101,5 +115,5 @@ def main():
             detector.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

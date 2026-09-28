@@ -23,7 +23,13 @@ PROVISIONAL_PLACEMENT_INTENSITY = {
     'blush': .65,
 }
 PROVISIONAL_TECHNIQUE_INTENSITY = {'lips_02': .7, 'eyeliner_05': .7}
-STYLE_BASELINE_PRIORITY = ('eyeliner_05', 'blush_01', 'eyeshadow_07')
+# The first three are the normal everyday baseline.  Brow/lip placement are
+# conservative fallbacks when one of those regions is occluded or not usable;
+# they keep the plan useful without inventing a facial defect.
+STYLE_BASELINE_PRIORITY = (
+    'eyeliner_05', 'blush_01', 'eyeshadow_07', 'brow_06', 'lips_02'
+)
+STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
 EXPERIMENTAL_THRESHOLDS = {
     'inter_eye_distance': {'above_threshold': .75, 'below_threshold': .55},
     'eye_tilt_angle': {'below_threshold': -4.},
@@ -248,12 +254,19 @@ class TechniqueCatalog:
             visible = analysis.visibility.get(region)
             if visible is None or visible.value is not True or visible.detection_confidence < MIN_CONFIDENCE:
                 continue
-            if entry.get('style_baseline'):
+            baseline = bool(entry.get('style_baseline'))
+            fallback = (proposal.technique_id in STYLE_BASELINE_FALLBACKS and
+                        entry['adjustment_type'] == 'placement')
+            # A fallback remains a measured technique when its own trigger is
+            # satisfied.  It becomes a visibility-only baseline only when the
+            # trigger is unavailable, so strong evidence keeps its ranking.
+            measured_evidence = None if baseline else self._check(entry['trigger'], analysis)
+            if baseline or (fallback and measured_evidence is None):
                 evidence = [dict(feature='anatomical_region_visible', measured_value=True,
                                  threshold_used=MIN_CONFIDENCE, comparator='true',
                                  detection_confidence=visible.detection_confidence)]
             else:
-                evidence = self._check(entry['trigger'], analysis)
+                evidence = measured_evidence
                 if evidence is None:
                     continue
             regional = self.data['regions'][region].get('visibility_precondition')
@@ -281,10 +294,12 @@ class TechniqueCatalog:
                       'adjustment_type': entry['adjustment_type'],
                       'technique': entry['technique'],
                       'instruction': entry['instruction_template'],
-                      'selection_basis': ('style_baseline' if entry.get('style_baseline') else 'measured_trigger'),
+                      'selection_basis': ('style_baseline'
+                                          if (baseline or (fallback and measured_evidence is None))
+                                          else 'measured_trigger'),
                       'evidence': evidence, 'detection_confidence': confidence,
                       **strength, 'target_side': proposal.target_side}
-            if entry.get('style_baseline'):
+            if baseline or (fallback and measured_evidence is None):
                 baseline_eligible[proposal.technique_id] = result
             else:
                 eligible.append((confidence, proposal.technique_id, result))

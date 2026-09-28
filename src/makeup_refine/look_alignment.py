@@ -17,7 +17,8 @@ STABLE_ANCHORS = (168, 6, 197, 195, 1, 4, 33, 133, 263, 362,
                   10, 152, 234, 454, 127, 356)
 
 
-def register_direct_candidate(original, candidate, reference_points, detector, editable_mask):
+def register_direct_candidate(original, candidate, reference_points, detector, editable_mask,
+                              max_restored_border=.02):
     """Correct small global movement with no local face warp or opacity blend.
 
     Independent protected-image pixels must improve after registration. Only
@@ -65,9 +66,10 @@ def register_direct_candidate(original, candidate, reference_points, detector, e
     # pixel boundary so a valid nearest sample cannot leave black edge specks.
     missing = np.asarray(valid.filter(ImageFilter.MinFilter(5))) == 0
     report['restoredBorderFraction'] = float(missing.mean())
-    if missing.mean() > .02 or np.any(missing & (np.asarray(editable_mask) > 0)):
+    if missing.mean() > max_restored_border or np.any(missing & (np.asarray(editable_mask) > 0)):
         raise SpikeError('QUALITY_CHECK_FAILED',
                          'Alignment would lose too much frame content or overlap makeup.', report)
+    report['maxRestoredBorderFraction'] = max_restored_border
     aligned = candidate.transform(original.size, Image.Transform.AFFINE,
                                   coefficients, Image.Resampling.BICUBIC)
     # Exact replacement of only uncovered border pixels, no feather or fading.

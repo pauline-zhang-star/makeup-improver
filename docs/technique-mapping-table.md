@@ -41,13 +41,15 @@ photo
 
 ### v1.3 style-polish entries
 
-These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered after measured-trigger entries, in this order, only when needed toward four distinct planned regions. They use placement intensity caps and the same identity safeguards as other entries.
+These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered after measured-trigger entries, in this order, only when needed toward four distinct planned regions. They use placement intensity caps and the same identity safeguards as other entries. If blush is not confidently visible, the selector may use the conservative brow-edge or lower-lip-center fallback below; these are visibility-only styling options and do not assert a defect.
 
 | id | region | technique | instruction |
 |---|---|---|---|
 | `eyeliner_05` | eyeliner | soft_outer_lash_definition | Trace a fine tapered line along the outer third of the upper lash line and lift its tip slightly; keep the inner corner soft. |
 | `blush_01` | blush | high_outward_cheek_blend | Sweep a soft blush high on the outer cheeks and blend it toward the temples, coordinated with existing lip color. |
 | `eyeshadow_07` | eyeshadow | soft_outer_lid_blend | Blend a soft midtone over the outer third of the upper lid, fading gently upward while leaving the inner lid light. |
+| `brow_06` | brows | define_lower_edge | Slightly sharpen the lower edge of the existing brow without moving its edge. |
+| `lips_02` | lips | center_highlight | Add a very thin highlight to the center of the lower lip to suggest fullness, without altering lip outline. |
 
 **"AND" in a trigger condition means all listed conditions must independently pass.** If any one condition in a multi-part trigger (e.g. threshold check + confidence check + detection check) fails, the whole entry does not match — skip it, do not partially apply it or substitute a default value for the missing condition.
 

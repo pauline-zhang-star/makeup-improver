@@ -171,14 +171,28 @@ def test_style_baselines_fill_three_distinct_visible_regions_without_claiming_de
     catalog = TechniqueCatalog()
     plan = catalog.select(catalog.complete_placement_proposals(analysis([])))
     assert [item['technique_id'] for item in plan.selected] == [
-        'eyeliner_05', 'blush_01', 'eyeshadow_07']
+        'eyeliner_05', 'blush_01', 'eyeshadow_07', 'brow_06']
     assert all(item['selection_basis'] == 'style_baseline' for item in plan.selected)
     assert all(item['evidence'][0]['feature'] == 'anatomical_region_visible'
                for item in plan.selected)
+    assert len({item['region'] for item in plan.selected}) >= 3
     hidden = {region: measure(False) for region in
               ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush', 'nose_contour', 'foundation')}
     assert catalog.select(catalog.complete_placement_proposals(
         analysis([], visibility=hidden))).selected == []
+
+
+def test_visible_brow_and_lip_fallbacks_fill_plan_when_blush_is_unavailable():
+    catalog = TechniqueCatalog()
+    visibility = {region: measure(True) for region in
+                  ('eyeliner', 'eyeshadow', 'brows', 'lips', 'nose_contour', 'foundation')}
+    visibility['blush'] = measure(False)
+    plan = catalog.select(catalog.complete_placement_proposals(
+        analysis([], visibility=visibility)))
+    ids = [item['technique_id'] for item in plan.selected]
+    assert ids == ['eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02']
+    assert len({item['region'] for item in plan.selected}) >= 3
+    assert all(item['selection_basis'] == 'style_baseline' for item in plan.selected)
 
 
 def test_lowercase_color_space_and_visible_lid_are_normalized():

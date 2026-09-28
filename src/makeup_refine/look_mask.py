@@ -41,14 +41,14 @@ def _style_expansion(style):
     return 1.0 if MakeupStyle(style or MakeupStyle.AUTO) == MakeupStyle.AUTO else 1.25
 
 
-def direct_edit_mask(size, points, style, selected):
+def direct_edit_mask(size, points, style, selected, include_complexion=True):
     """Selected techniques plus optional facial base makeup, without compositing.
 
     This landmark approximation is not semantic skin segmentation. Glasses and
     hair crossing the face still need the paired-image preservation assessment.
     Keep brow pigment protected unless a selected technique allows editing it.
     """
-    base = complexion_mask(size, points)
+    base = complexion_mask(size, points) if include_complexion else Image.new('L', size, 0)
     xy = np.asarray(points, dtype=float) * size
     draw = ImageDraw.Draw(base)
     for brow in BROWS:

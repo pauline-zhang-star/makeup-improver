@@ -1,7 +1,7 @@
 """Select measured techniques, generate once, then explain the resulting pixels."""
 import numpy as np
 from pydantic import ValidationError
-from .imaging import to_srgb, composite
+from .imaging import to_srgb, composite, edge_safe_composite
 from .interfaces import LandmarkProvider, LookEditor, LookExplainer
 from .look_models import MakeupStyle, LookComparison
 from .look_annotations import annotation_anchors
@@ -15,7 +15,8 @@ from .technique_catalog import TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGI
 from PIL import Image
 from .models import SpikeError
 from .preflight import check_face
-from .quality import validate_candidate_geometry, validate_protected_pixels
+from .quality import (validate_candidate_geometry, validate_facial_proportions,
+                      validate_protected_pixels)
 
 
 def summarize_observed_changes(steps, selected, allowed_supplementary_areas=()):
@@ -120,7 +121,10 @@ class LookPipeline:
                               'comparisonStatus': 'skipped_no_selected_techniques',
                               **summarize_observed_changes([], []),
                               'imageEditCalls': 0, 'humanReviewRequired': True}
-        mask = direct_edit_mask(original.size, points, style, plan.selected)
+        complexion_enabled = (style != MakeupStyle.AUTO or
+                              any(item['region'] == 'foundation' for item in plan.selected))
+        mask = direct_edit_mask(original.size, points, style, plan.selected,
+                                include_complexion=complexion_enabled)
         attempts, correction = [], None
         for attempt in range(1, self.max_edit_attempts + 1):
             arguments = {'correction': correction} if correction else {}
@@ -129,11 +133,27 @@ class LookPipeline:
                 candidate = to_srgb(self.editor.enhance(original, style, mask, plan, **arguments))
                 if self.on_candidate:
                     self.on_candidate(candidate)
-                enhanced, alignment = register_direct_candidate(
-                    original, candidate, points, self.landmarks, mask)
+                try:
+                    aligned, alignment = register_direct_candidate(
+                        original, candidate, points, self.landmarks, mask)
+                except SpikeError as alignment_error:
+                    recoverable_border = (alignment_error.code == 'QUALITY_CHECK_FAILED' and
+                                          'lose too much frame content or overlap makeup' in alignment_error.message)
+                    if not recoverable_border:
+                        raise
+                    # A modest camera shift can lose more than the strict
+                    # diagnostic border budget. Align it first, then restore
+                    # that border from the original before any makeup blend.
+                    aligned, alignment = register_direct_candidate(
+                        original, candidate, points, self.landmarks, mask,
+                        max_restored_border=.08)
+                    alignment['registrationFallback'] = 'expanded_border_recovery'
+                enhanced, composite_report = edge_safe_composite(original, aligned, mask)
+                alignment['protectedRegionComposite'] = composite_report
                 if self.on_aligned:
                     self.on_aligned(enhanced)
                 deviation = validate_candidate_geometry(enhanced, original, points, self.landmarks)
+                proportions = validate_facial_proportions(enhanced, original, self.landmarks)
                 preservation = validate_protected_pixels(original, enhanced, mask)
             except SpikeError as exc:
                 if exc.code not in {'QUALITY_CHECK_FAILED', 'NO_FACE', 'MULTIPLE_FACES'}:
@@ -150,22 +170,32 @@ class LookPipeline:
                                      {'generationAttempts': attempts, 'imageEditCalls': attempt}) from exc
                 continue
             record = {'attempt': attempt, 'status': 'passed', 'alignment': alignment,
-                      'maxLandmarkDeviation': deviation, **preservation}
+                      'maxLandmarkDeviation': deviation, **proportions, **preservation}
             attempts.append(record)
             if self.on_attempt:
                 self.on_attempt(record)
             break
+        allowed_supplementary = ['complexion'] if complexion_enabled else []
         metadata = {'requestedStyle': style.value,
                     'generationMode': 'direct_api_result',
-                    'allowedSupplementaryAreas': ['complexion'],
+                    'allowedSupplementaryAreas': allowed_supplementary,
+                    'complexionMaskEnabled': complexion_enabled,
                     'spatialAlignment': alignment, 'generationAttempts': attempts,
                     'annotationAnchors': annotation_anchors(points),
                     'maxLandmarkDeviation': deviation,
+                    **proportions,
                     'maskCoverageFraction': float(np.mean(np.asarray(mask) > 0)),
                     'humanReviewRequired': True, **preservation}
         if self.on_enhanced:
             self.on_enhanced(enhanced)
         explanation = self.explain(original, enhanced)
+        planned_areas = {('eyebrows' if item['region'] == 'brows' else
+                          'complexion' if item['region'] == 'foundation' else item['region'])
+                         for item in plan.selected}
+        allowed_areas = planned_areas | set(allowed_supplementary)
+        all_observed = {step['area'] for step in explanation['steps']}
+        explanation['filteredUnplannedObservedAreas'] = sorted(all_observed - allowed_areas)
+        explanation['steps'] = [step for step in explanation['steps'] if step['area'] in allowed_areas]
         coverage = summarize_observed_changes(explanation['steps'], plan.selected,
                                               metadata['allowedSupplementaryAreas'])
         coverage['displayedStepCount'] = len(explanation['steps'])

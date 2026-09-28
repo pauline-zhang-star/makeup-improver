@@ -13,8 +13,9 @@ from makeup_refine.look_pipeline import (LookPipeline, _directional_cosmetic_tra
 from makeup_refine.technique_catalog import TechniquePlan
 from makeup_refine.look_prompts import enhancement_prompt
 from makeup_refine.models import SpikeError
-from makeup_refine.quality import validate_protected_pixels
+from makeup_refine.quality import validate_facial_proportions, validate_protected_pixels
 from makeup_refine.providers import OpenAIProvider, png
+from makeup_refine.imaging import edge_safe_composite
 from test_pipeline import Detector, image
 
 
@@ -89,7 +90,7 @@ def test_auto_generates_before_explanation_and_saves_exact_final(image):
     assert provider.calls[0][1] == MakeupStyle.AUTO
     assert provider.calls[2][1] is image
     assert provider.calls[2][2] is saved[0] is enhanced
-    assert enhanced.getpixel((250, 330)) == (180, 80, 90)
+    assert enhanced.getpixel((250, 330)) != image.getpixel((250, 330))
     assert result['generationMode'] == 'direct_api_result'
     assert result['requestedStyle'] == 'Auto'
     assert result['steps'][0]['instruction'] == step()['instruction']
@@ -111,6 +112,11 @@ def test_auto_brief_requests_cosmetic_shape_without_anatomical_edit():
     assert 'brow arch' in prompt and 'bridge highlight' in prompt
     assert 'cupid bow' in prompt and 'fuller' in prompt
     assert 'face reshaping' in prompt and 'mouth open or closed exactly' in prompt
+    assert 'lock the original facial geometry' in prompt
+    assert 'distance between the eyes' in prompt
+    assert 'eye-to-nose distance' in prompt
+    assert 'nose-to-mouth distance' in prompt
+    assert 'Lock the hair silhouette' in prompt
 
 
 def test_selected_style_uses_wider_mask_than_auto(image):
@@ -200,12 +206,13 @@ def test_observed_base_makeup_is_allowed_but_does_not_replace_planned_techniques
     from makeup_refine.look_pipeline import summarize_observed_changes
     provider = Provider(steps=[step('lips'), step('complexion')])
     _, result = LookPipeline(provider, provider, Detector()).run(image)
-    assert result['allowedSupplementaryAreas'] == ['complexion']
-    assert result['observedSupplementaryChangeAreas'] == ['complexion']
+    assert result['allowedSupplementaryAreas'] == []
+    assert result['filteredUnplannedObservedAreas'] == ['complexion']
+    assert result['observedSupplementaryChangeAreas'] == []
     assert result['unexpectedMakeupChanges'] == []
     assert result['confirmedPlannedChangeCount'] == 1
     assert not result['minimumVisibleChangesMet']
-    assert {s['area'] for s in result['steps']} == {'lips', 'complexion'}
+    assert {s['area'] for s in result['steps']} == {'lips'}
     coverage = summarize_observed_changes([step('complexion')],
         [{'region': 'foundation'}], ['complexion'])
     assert coverage['confirmedPlannedChangeCount'] == 1
@@ -229,7 +236,8 @@ def test_facial_base_allowed_while_background_stays_protected():
         points[index] = (.5 + .3 * np.cos(angle), .5 + .4 * np.sin(angle))
     plan = Provider().plan_techniques(original, MakeupStyle.AUTO, points)
     selected = np.asarray(technique_mask(original.size, points, MakeupStyle.AUTO, plan.selected))
-    mask = direct_edit_mask(original.size, points, MakeupStyle.AUTO, plan.selected)
+    mask = direct_edit_mask(original.size, points, MakeupStyle.AUTO, plan.selected,
+                            include_complexion=True)
     base_only = (np.asarray(mask) > 0) & (selected == 0)
     assert base_only.sum() > 50000
     pixels = np.asarray(original).copy()
@@ -474,14 +482,20 @@ def test_recompose_uses_no_editor_or_explainer_and_clears_old_guidance(image):
     assert result['lipBlendQuality']['qualityPassed']
 
 
-def test_unplanned_global_edit_never_saves_or_explains(image):
+def test_unplanned_global_edit_is_locked_to_original_outside_makeup_mask(image):
     provider = Provider()
     saved = []
-    provider.enhance = lambda original, style, mask, plan: Image.new('RGB', original.size, (0, 0, 0))
-    with pytest.raises(SpikeError, match='outside the selected makeup regions'):
-        LookPipeline(provider, provider, Detector(), saved.append, max_edit_attempts=1).run(image)
-    assert not saved
-    assert [call[0] for call in provider.calls] == ['plan']
+    def edit(original, style, mask, plan):
+        provider.mask = mask
+        return Image.new('RGB', original.size, (0, 0, 0))
+    provider.enhance = edit
+    enhanced, result = LookPipeline(provider, provider, Detector(), saved.append,
+                                    max_edit_attempts=1).run(image)
+    assert saved and result['status'] == 'completed'
+    assert np.array_equal(np.asarray(enhanced), np.asarray(image)) is False
+    outside = np.asarray(provider.mask) == 0
+    assert np.array_equal(np.asarray(enhanced)[outside], np.asarray(image)[outside])
+    assert [call[0] for call in provider.calls] == ['plan', 'explain']
 
 
 @pytest.mark.parametrize('recovers', [True, False])
@@ -492,7 +506,7 @@ def test_corrective_retry_uses_original_and_same_plan_once(image, recovers):
         calls.append((original, plan, correction))
         if recovers and len(calls) == 2:
             return original.copy()
-        return Image.new('RGB', original.size, (0, 0, 0))
+        return Image.new('RGB', (original.width - 1, original.height), (0, 0, 0))
     provider.enhance = edit
     pipeline = LookPipeline(provider, provider, Detector(), saved.append,
                             on_attempt=attempts.append)
@@ -509,7 +523,7 @@ def test_corrective_retry_uses_original_and_same_plan_once(image, recovers):
     assert all(call[0] is image for call in calls)
     assert calls[0][1] is calls[1][1]
     assert calls[0][2] is None
-    assert 'outside the selected makeup regions' in calls[1][2]
+    assert 'image dimensions' in calls[1][2]
 
 
 def test_direct_check_accepts_only_local_edits():
@@ -544,6 +558,48 @@ def test_protected_gate_allows_calibrated_base_makeup_variation_but_rejects_scen
     scene = Image.new('RGB', original.size, (115, 115, 115))
     with pytest.raises(SpikeError, match='fraction above 8'):
         validate_protected_pixels(original, scene, mask)
+
+
+def test_facial_proportions_reject_eye_reshaping():
+    original = Image.new('RGB', (100, 100), (100, 100, 100))
+    candidate = Image.new('RGB', (100, 100), (200, 100, 100))
+
+    class ProportionDetector(Detector):
+        def detect(self, image):
+            points = np.asarray(super().detect(image)[0], dtype=float)
+            if image.getpixel((0, 0))[0] == 200:
+                for upper, lower in zip(
+                        ((33, 246, 161, 160, 159, 158, 157, 173, 133),
+                         (263, 466, 388, 387, 386, 385, 384, 398, 362)),
+                        ((33, 7, 163, 144, 145, 153, 154, 155, 133),
+                         (263, 249, 390, 373, 374, 380, 381, 382, 362))):
+                    points[list(upper), 1] -= .02
+                    points[list(lower), 1] += .02
+            return [points.tolist()]
+
+    with pytest.raises(SpikeError, match='facial feature proportions'):
+        validate_facial_proportions(candidate, original, ProportionDetector())
+
+
+def test_edge_safe_composite_restores_protected_pixels_without_a_hard_seam():
+    original = Image.new('RGB', (100, 100), (100, 110, 120))
+    edited = Image.new('RGB', (100, 100), (180, 70, 80))
+    mask = Image.new('L', (100, 100), 0)
+    mask.paste(255, (30, 30, 70, 70))
+    result, report = edge_safe_composite(original, edited, mask)
+    assert report['protectedPixelsRestoredExactly']
+    assert result.getpixel((0, 0)) == original.getpixel((0, 0))
+    assert result.getpixel((50, 50)) != original.getpixel((50, 50))
+
+
+def test_edge_safe_composite_does_not_fade_a_full_makeup_core():
+    original = Image.new('RGB', (100, 100), (100, 100, 100))
+    edited = Image.new('RGB', (100, 100), (200, 40, 40))
+    mask = Image.new('L', (100, 100), 128)
+    result, _ = edge_safe_composite(original, edited, mask)
+    result_delta = np.linalg.norm(np.asarray(result, dtype=float)[50, 50] - np.asarray(edited, dtype=float)[50, 50])
+    old_delta = np.linalg.norm(np.asarray(original, dtype=float)[50, 50] - np.asarray(edited, dtype=float)[50, 50])
+    assert result_delta < old_delta * .55
 
 
 def test_recompose_cli_is_local_and_does_not_reuse_steps(tmp_path, image, monkeypatch):

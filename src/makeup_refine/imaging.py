@@ -3,7 +3,7 @@ from io import BytesIO
 import warnings
 import math
 import numpy as np
-from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageCms, ImageFilter, ImageOps, UnidentifiedImageError
 from .models import SpikeError
 
 Image.MAX_IMAGE_PIXELS = 20_000_000
@@ -164,3 +164,48 @@ def composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
     result = Image.fromarray(np.rint(before + alpha * (after - before)).clip(0, 255).astype(np.uint8))
     result.info["icc_profile"] = SRGB_BYTES
     return result
+
+
+def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
+                        correction_strength: float = .65):
+    """Keep protected pixels while matching low-frequency color at the seam.
+
+    The generated makeup remains inside the supplied mask. A blurred local
+    color correction removes provider exposure/white-balance shifts near the
+    transition, while the original texture and all zero-alpha pixels remain
+    untouched. This is deliberately a color/alpha operation, never a face warp.
+    """
+    if edited.size != original.size or mask.size != original.size or mask.mode != 'L':
+        raise SpikeError('QUALITY_CHECK_FAILED', 'The edge-safe composite dimensions or mask are invalid.')
+    if not 0 <= correction_strength <= 1:
+        raise ValueError('correction_strength must be between zero and one')
+    before = np.asarray(to_srgb(original), dtype=np.float32)
+    after = np.asarray(to_srgb(edited), dtype=np.float32)
+    alpha = np.asarray(mask, dtype=np.float32) / 255.
+    support = alpha > 0
+    if not np.any(support):
+        raise SpikeError('QUALITY_CHECK_FAILED', 'The edit mask has no compositing support.')
+    # Technique intensity controls selection and the provider request. It must
+    # not accidentally fade the finished API makeup. Rebuild a full-strength
+    # interior with a short inward edge transition, while never expanding
+    # outside the permitted support.
+    support_image = Image.fromarray(np.uint8(support) * 255)
+    smoothed = np.asarray(support_image.filter(ImageFilter.GaussianBlur(2)), dtype=np.float32) / 255.
+    alpha = np.where(support, smoothed, 0.)
+    radius = max(2, min(12, round(min(original.size) * .012)))
+    base_low = np.asarray(Image.fromarray(np.uint8(before)).filter(
+        ImageFilter.GaussianBlur(radius)), dtype=np.float32)
+    edit_low = np.asarray(Image.fromarray(np.uint8(after)).filter(
+        ImageFilter.GaussianBlur(radius)), dtype=np.float32)
+    low_frequency_shift = np.clip(base_low - edit_low, -24., 24.)
+    corrected = np.clip(after + correction_strength * low_frequency_shift, 0., 255.)
+    result = np.rint(before + alpha[..., None] * (corrected - before)).clip(0, 255).astype(np.uint8)
+    output = Image.fromarray(result)
+    output.info['icc_profile'] = SRGB_BYTES
+    return output, {
+        'method': 'edge_safe_color_matched_composite',
+        'correctionStrength': correction_strength,
+        'blurRadiusPixels': radius,
+        'editableCoverageFraction': float(np.mean(support)),
+        'protectedPixelsRestoredExactly': True,
+    }

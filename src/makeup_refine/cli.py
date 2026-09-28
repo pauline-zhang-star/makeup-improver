@@ -65,6 +65,14 @@ def main():
             if report.get('minimumDistinctRegionsTarget') or report.get('techniquePlan'):
                 selected = report.get('techniquePlan', {}).get('selected', [])
                 if report.get('generationMode') == 'direct_api_result':
+                    planned_areas = {('eyebrows' if item['region'] == 'brows' else
+                                     'complexion' if item['region'] == 'foundation' else item['region'])
+                                     for item in selected}
+                    allowed_areas = planned_areas | set(report.get('allowedSupplementaryAreas', []))
+                    observed = {step['area'] for step in report.get('steps', [])}
+                    report['filteredUnplannedObservedAreas'] = sorted(observed - allowed_areas)
+                    report['steps'] = [step for step in report.get('steps', [])
+                                       if step['area'] in allowed_areas]
                     report.update(summarize_observed_changes(
                         report.get('steps', []), selected,
                         report.get('allowedSupplementaryAreas', [])))

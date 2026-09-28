@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .landmarks import validate_face
+from .landmarks import validate_face, UPPER_EYES, LOWER_EYES
 from .models import SpikeError
 
 
@@ -63,6 +63,42 @@ def validate_candidate_geometry(candidate, original, points, detector):
         raise SpikeError("QUALITY_CHECK_FAILED",
                          f"The generated image moved facial geometry beyond the allowed limit ({maximum:.4f} > 0.0120).")
     return maximum
+
+
+def facial_proportion_metrics(image, detector):
+    """Return appearance ratios that a landmark-position check cannot catch."""
+    points = np.asarray(validate_face(detector.detect(image)), dtype=float)
+    eye_span = float(np.linalg.norm(points[263] - points[33]))
+    if eye_span <= 1e-6:
+        raise SpikeError('FEATURES_NOT_VISIBLE', 'Could not measure the eyes reliably.')
+    eye_opening = []
+    for upper, lower in zip(UPPER_EYES, LOWER_EYES):
+        eye_opening.append(float(np.mean(points[lower, 1]) - np.mean(points[upper, 1])))
+    return {
+        'leftEyeOpeningRatio': eye_opening[0] / eye_span,
+        'rightEyeOpeningRatio': eye_opening[1] / eye_span,
+        'noseWidthRatio': float(np.linalg.norm(points[98] - points[327]) / eye_span),
+        'mouthWidthRatio': float(np.linalg.norm(points[61] - points[291]) / eye_span),
+    }
+
+
+def validate_facial_proportions(candidate, original, detector, max_relative_change=.05):
+    """Reject feature reshaping even when all landmarks move together."""
+    before = facial_proportion_metrics(original, detector)
+    after = facial_proportion_metrics(candidate, detector)
+    changes = {key: float((after[key] - before[key]) / max(abs(before[key]), 1e-6))
+               for key in before}
+    largest = max(changes, key=lambda key: abs(changes[key]))
+    report = {'facialProportionsBefore': before, 'facialProportionsAfter': after,
+              'facialProportionRelativeChanges': changes,
+              'maxFacialProportionChange': abs(changes[largest]),
+              'maxFacialProportionChangeAllowed': max_relative_change}
+    if report['maxFacialProportionChange'] > max_relative_change:
+        raise SpikeError('QUALITY_CHECK_FAILED',
+                         'The generated image changed facial feature proportions '
+                         f"({largest} changed {changes[largest]:+.1%}; "
+                         f"limit {max_relative_change:.1%}).", report)
+    return report
 
 
 def protected_pixel_metrics(original, candidate, editable_mask):

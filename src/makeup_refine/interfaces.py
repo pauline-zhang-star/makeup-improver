@@ -2,6 +2,7 @@ from typing import Protocol
 from PIL import Image
 from .models import Plan
 from .look_models import MakeupStyle, LookComparison
+from .technique_catalog import TechniquePlan
 
 
 class VisionProvider(Protocol):
@@ -17,8 +18,11 @@ class LandmarkProvider(Protocol):
 
 
 class LookEditor(Protocol):
+    def plan_techniques(self, original: Image.Image, style: MakeupStyle,
+                        points: list[tuple[float, float]]) -> TechniquePlan: ...
+
     def enhance(self, original: Image.Image, style: MakeupStyle,
-                mask: Image.Image) -> Image.Image: ...
+                mask: Image.Image, plan: TechniquePlan, correction=None) -> Image.Image: ...
 
 
 class LookExplainer(Protocol):

@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from makeup_refine.imaging import composite
-from makeup_refine.look_alignment import ANCHORS, align_candidate
+from makeup_refine.imaging import composite, prepare_edit_canvas
+from makeup_refine.look_alignment import ANCHORS, align_candidate, register_direct_candidate, STABLE_ANCHORS
 from makeup_refine.look_mask import makeup_mask, lip_mask, lip_pigment_mask
 from makeup_refine.look_composite import composite_makeup, lip_geometry_compatible
 from makeup_refine.models import SpikeError
@@ -16,6 +16,73 @@ class LandmarkSequence:
 
     def detect(self, image):
         return [self.points]
+
+
+def test_small_camera_shift_is_corrected_without_fading_makeup():
+    original = Image.fromarray(np.random.default_rng(9).integers(30, 160, (512, 512, 3), dtype=np.uint8))
+    reference = np.asarray(Detector().detect(original)[0])
+    candidate = original.transform(original.size, Image.Transform.AFFINE,
+                                   (1, 0, 0, 0, 1, -8), Image.Resampling.NEAREST)
+    candidate.paste((220, 40, 90), (250, 308, 260, 318))
+    mask = Image.new('L', original.size, 0)
+    mask.paste(255, (250, 300, 260, 310))
+    aligned, report = register_direct_candidate(original, candidate, reference,
+        LandmarkSequence((reference + (0, 8/512)).tolist()), mask)
+    assert report['similarityCorrectionApplied']
+    assert abs(report['scale'] - 1) < 1e-10
+    assert abs(report['rotationDegrees']) < 1e-10
+    assert aligned.getpixel((255, 305)) == (220, 40, 90)
+    assert report['cosmeticOpacity'] == 1
+    assert np.allclose(np.asarray(aligned)[100:200], np.asarray(original)[100:200], atol=1)
+
+
+def test_fractional_registration_does_not_leave_black_border_specks():
+    original = Image.new('RGB', (856, 1200), 'white')
+    original.paste((80, 100, 150), (180, 150, 650, 1050))
+    reference = np.asarray(Detector().detect(original)[0])
+    angle = np.radians(.0825)
+    linear = 1.00083 * np.array(((np.cos(angle), -np.sin(angle)),
+                               (np.sin(angle), np.cos(angle))))
+    translation = np.array((2.2, -7.45))
+    inverse = np.linalg.inv(linear)
+    coeff = np.c_[inverse, -inverse @ translation].reshape(-1)
+    candidate = original.transform(original.size, Image.Transform.AFFINE,
+                                   coeff, Image.Resampling.BICUBIC, fillcolor='white')
+    found = ((reference * original.size) @ linear.T + translation) / original.size
+    aligned, report = register_direct_candidate(original, candidate, reference,
+        LandmarkSequence(found.tolist()), Image.new('L', original.size))
+    assert report['similarityCorrectionApplied']
+    assert np.asarray(aligned)[:40].min() > 240
+
+
+def test_local_face_deformation_is_not_hidden_by_similarity_fit():
+    original = Image.new('RGB', (512, 512), (100, 100, 100))
+    reference = np.asarray(Detector().detect(original)[0])
+    found = reference.copy()
+    found[33, 0] -= .07
+    found[263, 0] += .07
+    with pytest.raises(SpikeError, match='uniform camera transform'):
+        register_direct_candidate(original, original.copy(), reference,
+            LandmarkSequence(found.tolist()), Image.new('L', original.size))
+
+
+def test_excessive_missing_frame_is_not_invented():
+    original = Image.new('RGB', (512, 512), (100, 100, 100))
+    reference = np.asarray(Detector().detect(original)[0])
+    with pytest.raises(SpikeError, match='lose too much frame'):
+        register_direct_candidate(original, original.copy(), reference,
+            LandmarkSequence((reference + (0, .025)).tolist()), Image.new('L', original.size))
+
+
+def test_valid_resolution_preserves_photo_pixels_inside_reversible_padding():
+    original = Image.fromarray(np.random.default_rng(5).integers(0, 255, (1200, 856, 3), dtype=np.uint8))
+    mask = Image.new('L', original.size, 255)
+    canvas, canvas_mask, box = prepare_edit_canvas(original, mask)
+    assert canvas.size == canvas_mask.size == (864, 1200)
+    assert box == (4, 0, 860, 1200)
+    assert np.array_equal(np.asarray(canvas.crop(box)), np.asarray(original))
+    assert canvas_mask.getpixel((0, 500)) == 0
+    assert canvas_mask.getpixel((4, 500)) == 255
 
 
 def test_affine_recomposition_is_aligned_before_masked_composite():

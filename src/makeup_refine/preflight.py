@@ -18,7 +18,7 @@ class Preflight:
 
 
 def check_face(image: Image.Image, detector: LandmarkProvider):
-    if image.mode != "RGB" or min(image.size) < 256 or max(image.size) > 1024:
+    if image.mode != "RGB" or min(image.size) < 256 or max(image.size) > 3800:
         raise SpikeError("UNSUPPORTED_IMAGE", "Normalize the image with load_image before processing.")
     quality_precheck(image)
     points = validate_face(detector.detect(image))

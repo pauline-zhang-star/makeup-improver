@@ -43,6 +43,45 @@ def scaled_edit_canvas(image: Image.Image) -> Image.Image:
     return result
 
 
+def compatible_edit_size(image: Image.Image) -> tuple[int, int]:
+    """Choose a valid GPT Image 2 output size without altering the input pixels."""
+    w, h = image.size
+    scale = max(1., math.sqrt(655360 / (w * h)))
+    cw, ch = math.ceil(w * scale / 16) * 16, math.ceil(h * scale / 16) * 16
+    while cw * ch < 655360:
+        if cw / w <= ch / h:
+            cw += 16
+        else:
+            ch += 16
+    if max(cw, ch) > 3840 or max(cw / ch, ch / cw) > 3 or cw * ch > 8294400:
+        raise SpikeError('UNSUPPORTED_IMAGE', 'Image canvas exceeds supported model dimensions.')
+    return cw, ch
+
+
+def prepare_edit_canvas(image, mask):
+    """Use an identical input/output canvas without stretching the photograph.
+
+    Preserve input pixels when already above the model's minimum area. Only
+    sub-minimum inputs are uniformly enlarged; add a few protected edge pixels
+    to reach multiples of 16. The returned box exactly reverses this padding.
+    """
+    if mask.size != image.size or mask.mode != 'L':
+        raise SpikeError('QUALITY_CHECK_FAILED', 'A matching edit mask is required.')
+    cw, ch = compatible_edit_size(image)
+    w, h = image.size
+    factor = max(1., math.sqrt(655360 / (w * h)))
+    sw, sh = min(cw, round(w * factor)), min(ch, round(h * factor))
+    photo = image if (sw, sh) == image.size else image.resize((sw, sh), Image.Resampling.LANCZOS)
+    local_mask = mask if mask.size == photo.size else mask.resize(photo.size, Image.Resampling.NEAREST)
+    left, top = (cw-sw)//2, (ch-sh)//2
+    canvas = Image.fromarray(np.pad(np.asarray(photo),
+        ((top, ch-sh-top), (left, cw-sw-left), (0, 0)), mode='edge'))
+    canvas.info.update(image.info)
+    canvas_mask = Image.new('L', canvas.size, 0)
+    canvas_mask.paste(local_mask, (left, top))
+    return canvas, canvas_mask, (left, top, left+sw, top+sh)
+
+
 def to_srgb(image: Image.Image) -> Image.Image:
     """Preserve displayed color before stripping private metadata.
 
@@ -84,7 +123,13 @@ def load_image(path: Path) -> Image.Image:
         raise SpikeError("UNSUPPORTED_IMAGE", "Choose a valid image under 20 megapixels.") from exc
     if min(image.size) < 512:
         raise SpikeError("IMAGE_TOO_SMALL", "Choose a photo at least 512 pixels on each side.")
-    image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    # Keep the camera resolution when the model can accommodate it. A large
+    # source is reduced only to satisfy the edit model's documented limits.
+    w, h = image.size
+    scale = min(1., 3800 / max(w, h), math.sqrt(8_000_000 / (w * h)))
+    if scale < 1:
+        image = image.resize((max(1, round(w * scale)), max(1, round(h * scale))),
+                             Image.Resampling.LANCZOS)
     # Retain the standard color profile, never camera/GPS metadata.
     return image
 

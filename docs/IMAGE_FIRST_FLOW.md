@@ -1,5 +1,17 @@
 # Revised image-first flow
 
+> Historical implementation note: the current pipeline selects up to seven
+> measured techniques before the image edit, then accepts or rejects the API
+> image directly. The alignment and local compositing below describe the older
+> experiment. See [the README](../README.md) and
+> [technique mapping table](technique-mapping-table.md) for the active flow.
+
+The active flow additionally allows optional facial base makeup in both Auto and
+selected styles. Facial skin need not remain pixel-identical: realistic coverage,
+tone evenness and finish changes are permitted and explained only when observed.
+This does not authorize changes to identity, geometry, hair, glasses, clothes,
+background or scene lighting. There is no local cosmetic blending in this path.
+
 This revision implements the user's updated flow in the existing Python repository.
 Inspection found no Xcode project, Swift source, React Native/Expo package, mobile UI,
 backend or database. The user confirmed that the change should apply to this repo.
@@ -123,6 +135,16 @@ selected generation has yet tested this setting.
   for comparison, all eight areas, omission of uncertain/unchanged steps, empty
   results, preservation rejection, local file storage and comparison-only retry.
   Test providers and HTTP responses are mocked. The runtime provider is real.
+- The latest Auto test reuses `IMG_1202.JPG` and saves the selected four-area
+  candidate in `outputs/img1202-four-area-011`. Local-only cheek/eye blending
+  revision `outputs/img1202-four-area-014` is the reviewed result. The comparison
+  identified eyeliner, eyeshadow, blush, and a lower-lip center highlight; these
+  four planned areas are shown as steps. It also claimed eyebrow, lash, and
+  complexion changes that were not separately planned, so those claims remain
+  in diagnostics rather than the user guide. Eyeliner and lip highlight are
+  easiest to see; blush and eyeshadow remain subtle. This meets the provisional
+  step-count goal according to the comparator, but does not establish that the
+  result is aesthetically better or that all four changes are obvious to a user.
 - Auto trial 005 used the previously supplied consented photo for one image-edit
   request and one paired-image comparison. Dimensions and the landmark guard
   passed (maximum deviation 0.002898). The comparison returned six steps and no
@@ -145,7 +167,7 @@ selected generation has yet tested this setting.
   Auto now asks for soft everyday polish through cosmetic placement: brow shape,
   apparent eye shape, nose bridge/alar contour, and lip pigment outline. The
   original mouth opening and eye interiors remain protected;
-  the eye composite has lower opacity to avoid overpowering the original face.
+  the eye composite is locally feathered to avoid a hard boundary.
   `nose_contour` is an eighth comparison/annotation area. Local mask inspection
   and automated tests pass.
 - A later enlarged eye/lip mask test generated one new candidate. The generated

@@ -38,6 +38,9 @@ def main():
             original, candidate, previous.get('requestedStyle', 'Auto'))
         enhanced.save(args.output / 'enhancedImage.png')
         report.update(candidateImage='candidateImage.png', recomposedFrom=str(args.source.resolve()),
+                      techniquePlan=previous.get('techniquePlan'),
+                      selectedTechniques=previous.get('selectedTechniques', []),
+                      thresholdsEmpiricallyCalibrated=previous.get('thresholdsEmpiricallyCalibrated', False),
                       visionModel=previous.get('visionModel'), editModel=previous.get('editModel'))
         save_review(args.output, original, enhanced, report)
         print(json.dumps({'status': report['status'], 'review': str((args.output / 'review.html').resolve()),

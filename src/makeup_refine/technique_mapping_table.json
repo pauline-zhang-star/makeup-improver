@@ -1,0 +1,303 @@
+{
+  "table_version": "1.3",
+  "notes": "Machine-readable mirror of technique-mapping-table.md. If the two ever disagree, technique-mapping-table.md is the source of truth and this file should be regenerated from it — do not hand-edit this file independently.",
+  "global_rules": {
+    "max_total_suggestions_per_job": 7,
+    "planned_region_target_when_visible": 4,
+    "minimum_visible_changes_goal": 3,
+    "selection_when_over_cap": "rank by detection_confidence descending, keep top N up to cap",
+    "padding_to_reach_cap_allowed": false,
+    "unit_normalization_default": "IED",
+    "id_reassignment_allowed": false
+  },
+  "color_adjustment_caps": {
+    "color_space": "OKLCH",
+    "MAX_DELTA_L": 0.06,
+    "MAX_DELTA_C": 0.04,
+    "MAX_DELTA_H_DEGREES": 12,
+    "status": "placeholder — tune empirically in Phase 1"
+  },
+  "brow_geometric_caps": {
+    "MAX_BROW_MASK_MARGIN_IED": 0.02,
+    "MAX_TAIL_EXTEND_IED": 0.06,
+    "MAX_THICKNESS_INCREASE_RATIO": 0.15,
+    "status": "placeholder — tune empirically in Phase 1"
+  },
+  "hue_shift_entries_gated_by_lighting_check": ["lips_03", "eyeshadow_05", "eyeshadow_06", "brow_03"],
+  "regions": {
+    "eyeliner": {
+      "entries": [
+        {
+          "id": "eyeliner_01",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "inter_eye_distance", "comparator": "above_threshold"},
+          "technique": "inner_corner_emphasis",
+          "instruction_template": "Deepen the eyeliner slightly at the inner corner to visually narrow the distance between the eyes."
+        },
+        {
+          "id": "eyeliner_02",
+          "adjustment_type": "placement",
+          "trigger": {"feature": ["eye_tilt_angle", "eye_aspect_ratio"], "comparator": "matches_downturned_or_elongated"},
+          "technique": "outer_wing_lift",
+          "instruction_template": "Extend the eyeliner along the lower lash line slightly upward at the outer corner."
+        },
+        {
+          "id": "eyeliner_03",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "visible_lid_ratio", "comparator": "below_threshold"},
+          "technique": "thicken_lash_line",
+          "instruction_template": "Slightly thicken the eyeliner along the lash line so it remains visible when the eye is open."
+        },
+        {
+          "id": "eyeliner_04",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "inter_eye_distance", "comparator": "below_threshold"},
+          "technique": "outer_extend_inner_taper",
+          "instruction_template": "Extend the eyeliner outward toward the outer corner; keep the inner corner thin or bare."
+        },
+        {
+          "id": "eyeliner_05",
+          "adjustment_type": "placement",
+          "style_baseline": true,
+          "technique": "soft_outer_lash_definition",
+          "instruction_template": "Trace a fine tapered line along the outer third of the upper lash line and lift its tip slightly; keep the inner corner soft."
+        }
+      ]
+    },
+    "eyeshadow": {
+      "entries": [
+        {
+          "id": "eyeshadow_01",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "socket_depth_estimate", "comparator": "above_threshold"},
+          "technique": "center_lid_highlight",
+          "instruction_template": "Apply a light highlight tone to the center of the upper lid to soften shadow depth."
+        },
+        {
+          "id": "eyeshadow_02",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "crease_visibility", "comparator": "below_threshold"},
+          "technique": "outer_corner_deepen",
+          "instruction_template": "Blend a slightly deeper tone into the outer corner and outer crease area for added dimension."
+        },
+        {
+          "id": "eyeshadow_03",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "inter_eye_distance", "comparator": "above_threshold"},
+          "technique": "inner_corner_deepen",
+          "instruction_template": "Blend a slightly deeper tone into the inner corner to narrow the visual gap."
+        },
+        {
+          "id": "eyeshadow_04",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "inter_eye_distance", "comparator": "below_threshold"},
+          "technique": "outer_corner_extend",
+          "instruction_template": "Extend eyeshadow blending toward the outer corner; keep inner corner light."
+        },
+        {
+          "id": "eyeshadow_05",
+          "adjustment_type": "color",
+          "trigger": {"all_of": [
+            {"feature": "eyeshadow_undertone_hue_gap", "comparator": "above_threshold"},
+            {"feature": "undertone_confidence", "comparator": "above_threshold"},
+            {"feature": "eyeshadow_detected", "comparator": "true"}
+          ]},
+          "technique": "hue_align_to_undertone",
+          "instruction_template": "Shift the eyeshadow hue slightly toward the warm or cool direction that harmonizes with the skin undertone (small relative hue delta, capped per color_adjustment_caps).",
+          "mutually_exclusive_with": ["eyeshadow_06"]
+        },
+        {
+          "id": "eyeshadow_06",
+          "adjustment_type": "color",
+          "trigger": {"all_of": [
+            {"feature": "eyeshadow_iris_contrast", "comparator": "below_threshold"},
+            {"feature": "iris_detection_confidence", "comparator": "above_threshold"},
+            {"feature": "eyeshadow_detected", "comparator": "true"}
+          ]},
+          "technique": "complement_iris_shift",
+          "instruction_template": "Shift the eyeshadow hue slightly toward the complement of the iris color so the eyes stand out (small relative hue delta, capped per color_adjustment_caps).",
+          "mutually_exclusive_with": ["eyeshadow_05"]
+        },
+        {
+          "id": "eyeshadow_07",
+          "adjustment_type": "placement",
+          "style_baseline": true,
+          "technique": "soft_outer_lid_blend",
+          "instruction_template": "Blend a soft midtone over the outer third of the upper lid, fading gently upward while leaving the inner lid light."
+        }
+      ]
+    },
+    "brows": {
+      "visibility_precondition": {"feature": "brow_visibility", "comparator": "above_threshold", "note": "skip whole region if either brow is occluded (bangs, glasses, hat, hand)"},
+      "entries": [
+        {
+          "id": "brow_01",
+          "adjustment_type": "color",
+          "trigger": {"feature": "brow_skin_contrast", "comparator": "below_threshold"},
+          "technique": "deepen_brow_tone",
+          "instruction_template": "Deepen the brow color slightly relative to its current value (small relative lightness delta, capped) so the brows frame the eyes more clearly.",
+          "reference_color_source": "hair_detection",
+          "mutually_exclusive_with": ["brow_02"]
+        },
+        {
+          "id": "brow_02",
+          "adjustment_type": "color",
+          "trigger": {"all_of": [
+            {"feature": "brow_hair_lightness_gap", "comparator": "above_threshold"},
+            {"feature": "hair_detection_confidence", "comparator": "above_threshold"}
+          ]},
+          "technique": "soften_brow_tone",
+          "instruction_template": "Lighten the brow color slightly toward the hair color (small relative lightness delta, capped) to soften a harsh look.",
+          "reference_color_source": "hair_detection",
+          "mutually_exclusive_with": ["brow_01"]
+        },
+        {
+          "id": "brow_03",
+          "adjustment_type": "color",
+          "trigger": {"all_of": [
+            {"feature": "brow_hair_hue_gap", "comparator": "above_threshold"},
+            {"feature": "hair_detection_confidence", "comparator": "above_threshold"},
+            {"feature": "lighting_gate", "comparator": "pass"}
+          ]},
+          "technique": "brow_hue_align",
+          "instruction_template": "Shift the brow hue slightly toward the hair hue (small relative hue delta, capped) so brow and hair read as harmonious.",
+          "reference_color_source": "hair_detection"
+        },
+        {
+          "id": "brow_04",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "brow_density_gap_score", "comparator": "above_threshold"},
+          "technique": "fill_sparse_gaps",
+          "instruction_template": "Fill sparse gaps inside the existing brow outline with fine hair-like strokes that match the existing hair color and growth direction. Do not extend beyond the current brow boundary.",
+          "mask_scope": "existing_brow_polygon_plus_margin",
+          "cannot_target_same_brow_as": ["brow_07"]
+        },
+        {
+          "id": "brow_05",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "brow_tail_fade_score", "comparator": "above_threshold"},
+          "technique": "define_tail",
+          "instruction_template": "Define the brow tail by extending it slightly along its existing direction (capped extension). Keep the tail angle unchanged.",
+          "mask_scope": "existing_brow_polygon_plus_capped_tail_extension"
+        },
+        {
+          "id": "brow_06",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "brow_edge_definition", "comparator": "below_threshold"},
+          "technique": "define_lower_edge",
+          "instruction_template": "Slightly sharpen the lower edge of the brow so its shape reads more clearly, without moving the edge.",
+          "mask_scope": "existing_brow_polygon_plus_margin"
+        },
+        {
+          "id": "brow_07",
+          "adjustment_type": "placement",
+          "trigger": {"all_of": [
+            {"feature": "brow_asymmetry_score", "comparator": "above_threshold"},
+            {"feature": "both_brows_detected", "comparator": "true"}
+          ]},
+          "technique": "balance_weaker_brow",
+          "instruction_template": "Fill or define only the weaker brow slightly so the pair looks more balanced. Do not move either brow's position or arch.",
+          "mask_scope": "existing_brow_polygon_plus_margin",
+          "cannot_target_same_brow_as": ["brow_04"],
+          "enabled": false,
+          "enabled_note": "ships disabled by default — highest identity-drift risk of the brow entries; enable only after Phase 1 confirms no landmark drift beyond tolerance on the diverse test set"
+        }
+      ],
+      "excluded": []
+    },
+    "lips": {
+      "entries": [
+        {
+          "id": "lips_01",
+          "adjustment_type": "color",
+          "trigger": {"feature": "lip_skin_contrast_ratio", "comparator": "below_threshold"},
+          "technique": "relative_tone_brighten",
+          "instruction_template": "Increase lip color saturation/brightness relative to its current detected value (relative delta, not a fixed target shade).",
+          "mutually_exclusive_with": ["lips_04"]
+        },
+        {
+          "id": "lips_02",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "lower_lip_fullness_estimate", "comparator": "below_threshold"},
+          "technique": "center_highlight",
+          "instruction_template": "Add a very thin highlight to the center of the lower lip to suggest fullness, without altering lip outline."
+        },
+        {
+          "id": "lips_03",
+          "adjustment_type": "color",
+          "trigger": {"all_of": [
+            {"feature": "lip_undertone_hue_gap", "comparator": "above_threshold"},
+            {"feature": "undertone_confidence", "comparator": "above_threshold"},
+            {"feature": "lighting_gate", "comparator": "pass"}
+          ]},
+          "technique": "hue_align_to_undertone",
+          "instruction_template": "Shift the lip color hue slightly toward a shade that harmonizes with the skin undertone (small relative hue delta, capped per color_adjustment_caps). Keep lightness roughly unchanged."
+        },
+        {
+          "id": "lips_04",
+          "adjustment_type": "color",
+          "trigger": {"feature": "lip_chroma_dominance_score", "comparator": "above_threshold", "note": "lip chroma relative to eye-region and cheek chroma"},
+          "technique": "chroma_soften",
+          "instruction_template": "Reduce lip color saturation slightly relative to its current value so it balances with the rest of the look.",
+          "mutually_exclusive_with": ["lips_01"]
+        }
+      ],
+      "excluded": [
+        {
+          "excluded_id": "lips_excluded_01",
+          "would_be_trigger": "lip peak / cupid's bow not well-defined",
+          "reason": "Borders on altering facial geometry rather than applying makeup color/technique — conflicts with the no-facial-feature-reshaping rule (Section 5 of the main design doc). Do not add without revisiting that rule explicitly."
+        }
+      ]
+    },
+    "nose_contour": {
+      "risk_note": "Higher risk than eyeliner/eyeshadow/lips — contouring can read as reshaping if overdone. intensity should default lower than other regions; Section 19 validation should weight this region's outside-mask/edge checks more strictly.",
+      "entries": [
+        {
+          "id": "nose_01",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "nasal_width_ratio", "comparator": "above_threshold", "normalization": "IED"},
+          "technique": "side_shadow_subtle",
+          "instruction_template": "Apply a very subtle shadow along both sides of the nose to visually narrow its width. Keep effect minimal."
+        },
+        {
+          "id": "nose_02",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "bridge_flatness_estimate", "comparator": "above_threshold"},
+          "technique": "bridge_highlight",
+          "instruction_template": "Apply a thin highlight down the center of the nose bridge to add dimension."
+        }
+      ]
+    },
+    "blush": {
+      "entries": [
+        {
+          "id": "blush_01",
+          "adjustment_type": "placement",
+          "style_baseline": true,
+          "technique": "high_outward_cheek_blend",
+          "instruction_template": "Sweep a soft blush high on the outer cheeks and blend it toward the temples; keep the color harmonious with the existing lip tone and avoid round patches."
+        }
+      ]
+    },
+    "foundation": {
+      "scope_constraint": "Local highlight/concealer points only, never full-face tone-matching, smoothing, or blemish removal. A full-face mask conflicts with the localized-edit architecture (Section 17) and sharply raises identity-drift risk. Treat 'even out skin tone across the whole face' as a separate, unapproved scope discussion if ever requested.",
+      "entries": [
+        {
+          "id": "foundation_01",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "under_eye_darkness_score", "comparator": "above_threshold"},
+          "technique": "under_eye_local_brighten",
+          "instruction_template": "Apply light, localized concealer-style brightening strictly within the under-eye shadow area."
+        },
+        {
+          "id": "foundation_02",
+          "adjustment_type": "placement",
+          "trigger": {"feature": "cheekbone_highlight_estimate", "comparator": "below_threshold"},
+          "technique": "highlight_points",
+          "instruction_template": "Add a small amount of highlight at the top of the cheekbone and down the nose bridge center."
+        }
+      ]
+    }
+  }
+}

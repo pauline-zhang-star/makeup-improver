@@ -125,7 +125,7 @@ def test_normalizes_and_strips_metadata(tmp_path):
     path = tmp_path / "input.jpg"
     Image.new("RGB", (1600, 1200)).save(path)
     result = load_image(path)
-    assert result.size == (1024, 768)
+    assert result.size == (1600, 1200)
     assert not result.getexif()
 
 

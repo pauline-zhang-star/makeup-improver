@@ -13,7 +13,7 @@ photo
 → detection (facial landmarks + color analysis)
 → measured features (e.g. eye_aspect_ratio, inter_eye_distance, lip_skin_contrast)
 → match measured triggers and assess which anatomical regions are visible
-→ local rules retain measured matches, then add style-polish techniques toward 5 planned regions
+→ local rules rank matching techniques using the selected style, then add eligible visible style-polish techniques toward 5 planned regions
 → keep at most 7 techniques in total
 → AI must cite which measured feature + threshold justified each suggestion (traceability requirement)
 → localized edit call executes the instruction
@@ -23,7 +23,7 @@ photo
 
 1. Trigger conditions are continuous, measured facial/color features — never skin tone, ethnicity, or any demographic label.
 2. Color adjustments are always relative deltas against the user's own detected color value — never a fixed target color/shade.
-3. If no measured trigger passes, only a listed style-polish technique may be added in a confidently visible region. Never claim a facial deficit as its reason.
+3. The selected style orders suitable techniques; original-photo measurements, regional visibility, confidence and lighting still decide whether each measured technique applies. Style-specific threshold adjustments must be explicit and logged. If no measured trigger passes, only a listed visible style-polish technique may be added. Never claim a facial deficit as its reason.
 4. Every technique must be reversible/non-permanent makeup guidance, not a geometry change to the face itself.
 5. Test set validation (Phase 1) must confirm each trigger's measured threshold performs consistently across a range of skin tones and face shapes — this table assumes detection is reliable, it does not compensate for detection bias.
 
@@ -34,14 +34,31 @@ photo
 **Cross-region selection cap.** The product owner revised the limit to **7** per job, across *all* regions combined, not per region. This overrides the earlier limit of 3 in the main design doc. A single photo can match entries in several regions at once (e.g. brows + eyeliner + lips), producing more matches than the cap allows. Selection logic must therefore:
 1. Evaluate every region's trigger conditions independently and collect all matches.
 2. Apply each region's own mutual-exclusivity rules first (e.g. `lips_01` vs `lips_04`) to narrow matches within a region.
-3. If more than 7 matches remain across all regions, rank by `detection_confidence` (highest first) and keep the top 7. Do not default to a fixed region priority order (e.g. always eyes before lips) — this biases every result toward the same regions regardless of what the photo actually needs.
-4. If measured matches cover fewer than 5 distinct regions, add the v1.3 style-polish techniques below in confidently visible regions toward 5 planned regions. This leaves room for an edit that fails to appear while aiming for 5 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
+3. If more than 7 matches remain, Auto ranks by `detection_confidence` (highest first). A named style ranks its listed suitable techniques first, then other measured matches by confidence; every candidate must still pass its applicable measurement, visibility, confidence and lighting gates.
+4. If measured matches cover fewer than 5 distinct regions, add eligible style-polish techniques in confidently visible regions, ordered for the selected style, toward 5 planned regions. This leaves room for an edit that fails to appear while aiming for 5 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
 
 **Product-owner revision:** aim for at least five *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for five distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
 
 ### v1.3 style-polish entries
 
-These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered after measured-trigger entries, in this order, only when needed toward five distinct planned regions. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
+These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered only when needed toward five distinct planned regions, using the selected style's preference order. Auto retains the order below. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
+
+For Korean Soft, `lips_01` is preferred over the generic `lips_02` center highlight. Its lip-to-skin contrast trigger uses a Korean Soft threshold of `<0.25` (Auto remains `<0.20`), and still requires confidently visible lips, a model-proposed relative OKLCH delta within the global caps, and the lighting gate for any hue adjustment. The applied threshold is included in the plan evidence.
+
+### Style technique preference order
+
+These lists rank eligible techniques. A listed technique is not selected when its required evidence, regional visibility, confidence, lighting or color-delta checks fail. Placement entries explicitly marked `style_baseline` may be added by confident region visibility when needed toward five distinct planned regions.
+
+| style | preference order |
+|---|---|
+| Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` |
+| Natural | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` |
+| Work / Polished | `brow_06`, `eyeliner_05`, `eyeshadow_07`, `foundation_02`, `lips_01`, `blush_01`, `nose_02` |
+| Korean Soft | `eyeshadow_07`, `blush_01`, `lips_01`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` |
+| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `brow_06`, `eyeliner_05`, `foundation_02`, `nose_02` |
+| Date Night | `eyeliner_02`, `eyeshadow_02`, `lips_01`, `brow_05`, `blush_01`, `nose_02`, `foundation_02` |
+| Sophisticated | `brow_05`, `eyeliner_05`, `eyeshadow_07`, `lips_03`, `lips_01`, `nose_02`, `foundation_02` |
+| Soft Glam | `eyeshadow_02`, `eyeliner_05`, `blush_01`, `lips_01`, `brow_06`, `nose_02`, `foundation_02` |
 
 | id | region | technique | instruction |
 |---|---|---|---|

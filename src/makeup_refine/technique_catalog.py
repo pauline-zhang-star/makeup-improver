@@ -9,6 +9,7 @@ from typing import Optional, Union
 from pydantic import Field, field_validator, model_validator
 
 from .models import StrictModel, SpikeError
+from .look_models import MakeupStyle
 
 CATALOG_PATH = Path(__file__).with_name('technique_mapping_table.json')
 MIN_CONFIDENCE = .85
@@ -33,6 +34,35 @@ STYLE_BASELINE_PRIORITY = (
     'nose_02', 'foundation_02'
 )
 STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
+
+# Style ranks suitable techniques; it does not make an invisible feature or an
+# unsafe color edit eligible. Auto deliberately retains its existing ranking.
+STYLE_TECHNIQUE_PRIORITY = {
+    MakeupStyle.AUTO: STYLE_BASELINE_PRIORITY,
+    MakeupStyle.NATURAL: ('eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02',
+                          'blush_01', 'nose_02', 'foundation_02'),
+    MakeupStyle.WORK: ('brow_06', 'eyeliner_05', 'eyeshadow_07', 'foundation_02',
+                       'lips_01', 'blush_01', 'nose_02'),
+    MakeupStyle.KOREAN_SOFT: ('eyeshadow_07', 'blush_01', 'lips_01', 'eyeliner_05',
+                              'brow_06', 'foundation_02', 'nose_02'),
+    MakeupStyle.FRESH: ('blush_01', 'lips_01', 'eyeshadow_07', 'brow_06',
+                        'eyeliner_05', 'foundation_02', 'nose_02'),
+    MakeupStyle.DATE_NIGHT: ('eyeliner_02', 'eyeshadow_02', 'lips_01', 'brow_05',
+                             'blush_01', 'nose_02', 'foundation_02'),
+    MakeupStyle.SOPHISTICATED: ('brow_05', 'eyeliner_05', 'eyeshadow_07', 'lips_03',
+                                'lips_01', 'nose_02', 'foundation_02'),
+    MakeupStyle.SOFT_GLAM: ('eyeshadow_02', 'eyeliner_05', 'blush_01', 'lips_01',
+                            'brow_06', 'nose_02', 'foundation_02'),
+}
+
+# Korean Soft favors a softly graduated tint. A slightly less pronounced
+# lip-to-skin contrast still qualifies when the image has confident lip
+# visibility and the model supplies a bounded, image-relative color delta.
+STYLE_TRIGGER_OVERRIDES = {
+    MakeupStyle.KOREAN_SOFT: {
+        'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .25}},
+    },
+}
 EXPERIMENTAL_THRESHOLDS = {
     'inter_eye_distance': {'above_threshold': .75, 'below_threshold': .55},
     'eye_tilt_angle': {'below_threshold': -4.},
@@ -137,6 +167,15 @@ class TechniqueCatalog:
         self.thresholds = thresholds if thresholds is not None else EXPERIMENTAL_THRESHOLDS
         self._validate()
 
+    def thresholds_for_style(self, style=MakeupStyle.AUTO):
+        """Return the explicit trigger values the planner should measure."""
+        style = MakeupStyle(style or MakeupStyle.AUTO)
+        thresholds = {feature: dict(values) for feature, values in self.thresholds.items()}
+        for overrides in STYLE_TRIGGER_OVERRIDES.get(style, {}).values():
+            for feature, comparators in overrides.items():
+                thresholds.setdefault(feature, {}).update(comparators)
+        return thresholds
+
     def _validate(self):
         if self.data.get('table_version') != '1.3':
             raise SpikeError('CONFIGURATION_ERROR', 'Unsupported technique table version.')
@@ -162,11 +201,12 @@ class TechniqueCatalog:
             if self.data['color_adjustment_caps'][name] <= 0:
                 raise SpikeError('CONFIGURATION_ERROR', 'Invalid color cap.')
 
-    def _check(self, condition, analysis):
+    def _check(self, condition, analysis, threshold_overrides=None):
+        threshold_overrides = threshold_overrides or {}
         if 'all_of' in condition:
             evidence = []
             for part in condition['all_of']:
-                matched = self._check(part, analysis)
+                matched = self._check(part, analysis, threshold_overrides)
                 if matched is None:
                     return None
                 evidence.extend(matched)
@@ -177,7 +217,8 @@ class TechniqueCatalog:
             if comparator != 'matches_downturned_or_elongated':
                 return None
             for name in feature:
-                matched = self._check({'feature': name, 'comparator': 'below_threshold'}, analysis)
+                matched = self._check({'feature': name, 'comparator': 'below_threshold'},
+                                      analysis, threshold_overrides)
                 if matched is not None:
                     return matched
             return None
@@ -191,7 +232,8 @@ class TechniqueCatalog:
                 return None
             threshold = None
         elif comparator in ('above_threshold', 'below_threshold'):
-            threshold = self.thresholds.get(feature, {}).get(comparator)
+            threshold = threshold_overrides.get(feature, {}).get(
+                comparator, self.thresholds.get(feature, {}).get(comparator))
             if threshold is None or isinstance(value, bool):
                 return None
             if comparator == 'above_threshold' and not value > threshold:
@@ -238,7 +280,10 @@ class TechniqueCatalog:
                     technique_id, PROVISIONAL_PLACEMENT_INTENSITY[region])))
         return analysis
 
-    def select(self, analysis):
+    def select(self, analysis, style=MakeupStyle.AUTO):
+        style = MakeupStyle(style or MakeupStyle.AUTO)
+        style_priorities = STYLE_TECHNIQUE_PRIORITY[style]
+        threshold_overrides = STYLE_TRIGGER_OVERRIDES.get(style, {})
         analysis = TechniqueAnalysis.model_validate(analysis)
         brows = analysis.visibility.get('brows')
         if brows is not None and 'brow_visibility' not in analysis.measurements:
@@ -263,7 +308,9 @@ class TechniqueCatalog:
             # A fallback remains a measured technique when its own trigger is
             # satisfied.  It becomes a visibility-only baseline only when the
             # trigger is unavailable, so strong evidence keeps its ranking.
-            measured_evidence = None if baseline else self._check(entry['trigger'], analysis)
+            measured_evidence = (None if baseline else
+                                 self._check(entry['trigger'], analysis,
+                                             threshold_overrides.get(proposal.technique_id)))
             if baseline or (fallback and measured_evidence is None):
                 evidence = [dict(feature='anatomical_region_visible', measured_value=True,
                                  threshold_used=MIN_CONFIDENCE, comparator='true',
@@ -274,13 +321,15 @@ class TechniqueCatalog:
                     continue
             regional = self.data['regions'][region].get('visibility_precondition')
             if regional:
-                extra = self._check(regional, analysis)
+                extra = self._check(regional, analysis,
+                                    threshold_overrides.get(proposal.technique_id))
                 if extra is None:
                     continue
                 evidence += extra
             if entry.get('reference_color_source') == 'hair_detection':
                 extra = self._check({'feature': 'hair_detection_confidence',
-                                     'comparator': 'above_threshold'}, analysis)
+                                     'comparator': 'above_threshold'}, analysis,
+                                    threshold_overrides.get(proposal.technique_id))
                 if extra is None:
                     continue
                 evidence += extra
@@ -327,13 +376,28 @@ class TechniqueCatalog:
             return True
 
         ranked = sorted(eligible, key=lambda row: (-row[0], row[1]))
-        for _, technique_id, result in ranked:
-            if result['region'] not in {item['region'] for item in selected}:
-                add_result(technique_id, result)
-        # When only one or two measured opportunities are available, add
-        # broadly wearable style polish in distinct, confidently visible areas.
-        # Visibility is the stated evidence; this never claims a facial defect.
-        for technique_id in STYLE_BASELINE_PRIORITY:
+        eligible_by_id = {technique_id: result for _, technique_id, result in ranked}
+
+        # Named style preferences choose which suitable edits lead the plan.
+        # The original Auto confidence-first ordering remains unchanged.
+        if style == MakeupStyle.AUTO:
+            for _, technique_id, result in ranked:
+                if result['region'] not in {item['region'] for item in selected}:
+                    add_result(technique_id, result)
+        else:
+            for technique_id in style_priorities:
+                result = eligible_by_id.get(technique_id)
+                if result is not None and result['region'] not in {
+                        item['region'] for item in selected}:
+                    add_result(technique_id, result)
+            for _, technique_id, result in ranked:
+                if result['region'] not in {item['region'] for item in selected}:
+                    add_result(technique_id, result)
+
+        # Fill toward five distinct regions with visible-only styling options
+        # in the selected style's order. These entries have visibility as
+        # their suitability evidence; they never assert a facial defect.
+        for technique_id in style_priorities:
             if len({item['region'] for item in selected}) >= PLANNED_REGION_TARGET:
                 break
             result = baseline_eligible.get(technique_id)

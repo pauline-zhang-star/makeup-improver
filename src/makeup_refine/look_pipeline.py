@@ -8,7 +8,7 @@ from .look_annotations import annotation_anchors
 from .look_mask import (makeup_mask, lip_mask, complexion_mask, direct_edit_mask,
                         lip_center_highlight_mask, outer_wing_mask)
 from .look_alignment import align_candidate, register_direct_candidate
-from .look_composite import composite_complexion_base
+from .look_composite import composite_complexion_base, preserve_complexion_texture
 from .landmarks import validate_face, LIPS, INNER_LIPS
 from .lip_blend import blend_full_lips
 from .technique_catalog import TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGION_TARGET
@@ -147,7 +147,15 @@ class LookPipeline:
                         max_restored_border=.08)
                     alignment['registrationFallback'] = 'expanded_border_recovery'
                 enhanced, composite_report = edge_safe_composite(original, aligned, mask)
+                complexion_texture_report = {'textureRestorationApplied': False}
+                foundation_items = [item for item in plan.selected
+                                    if item.get('region') == 'foundation']
+                if foundation_items:
+                    foundation_mask = direct_edit_mask(original.size, points, style, foundation_items)
+                    enhanced, complexion_texture_report = preserve_complexion_texture(
+                        original, enhanced, foundation_mask)
                 alignment['protectedRegionComposite'] = composite_report
+                alignment['complexionTexture'] = complexion_texture_report
                 if self.on_aligned:
                     self.on_aligned(enhanced)
                 deviation = validate_candidate_geometry(enhanced, original, points, self.landmarks)

@@ -139,7 +139,9 @@ class OpenAIProvider:
                        'keep eyeshadow above and outside the visible eye opening, blending upward and outward. '
                        'Preserve the original hairline and hair silhouette, volume, width, part and flyaways exactly; '
                        'do not widen or regenerate the hair. '
-                       'natural skin texture, and all regions outside the selected techniques and permitted facial base makeup. '
+                       'Keep every under-eye wrinkle, crease, pore and age cue visible; only reduce uneven tone lightly, '
+                       'never blur or erase skin texture. Preserve natural skin texture and all regions outside the selected '
+                       'techniques and permitted facial base makeup. '
                        'Return finished makeup; no later fading is applied.')
         try:
             response = self.client.post("images/edits", data={

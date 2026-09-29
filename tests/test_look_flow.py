@@ -16,6 +16,7 @@ from makeup_refine.models import SpikeError
 from makeup_refine.quality import validate_facial_proportions, validate_protected_pixels
 from makeup_refine.providers import OpenAIProvider, png
 from makeup_refine.imaging import edge_safe_composite
+from makeup_refine.look_composite import preserve_complexion_texture
 from test_pipeline import Detector, image
 
 
@@ -201,6 +202,8 @@ def test_enhancement_prompt_uses_preselected_technique(image):
     assert 'small visible skin gap' in prompt
     assert 'blending upward and outward' in prompt
     assert 'bounded continuous makeup area' in prompt
+    assert 'Wrinkles may look softer' in prompt
+    assert 'never erase, blur, airbrush or reconstruct age cues' in prompt
 
 
 def test_identical_pair_skips_paid_comparison(image):
@@ -640,6 +643,19 @@ def test_edge_safe_composite_does_not_fade_a_full_makeup_core():
     result_delta = np.linalg.norm(np.asarray(result, dtype=float)[50, 50] - np.asarray(edited, dtype=float)[50, 50])
     old_delta = np.linalg.norm(np.asarray(original, dtype=float)[50, 50] - np.asarray(edited, dtype=float)[50, 50])
     assert result_delta < old_delta * .55
+
+
+def test_complexion_texture_restoration_keeps_fine_detail_inside_foundation_mask():
+    pixels = np.full((80, 80, 3), 120, dtype=np.uint8)
+    pixels[20:60, 20:60] += (np.indices((40, 40))[0] % 3)[..., None].astype(np.uint8) * 12
+    original = Image.fromarray(pixels)
+    candidate = Image.fromarray(np.full((80, 80, 3), 135, dtype=np.uint8))
+    mask = Image.new('L', original.size, 0)
+    mask.paste(255, (20, 20, 60, 60))
+    restored, report = preserve_complexion_texture(original, candidate, mask)
+    assert report['textureRestorationApplied']
+    assert report['textureEnergyRatio'] >= report['minimumTextureEnergyRatio'] * .95
+    assert restored.getpixel((25, 25)) != restored.getpixel((25, 26))
 
 
 def test_recompose_cli_is_local_and_does_not_reuse_steps(tmp_path, image, monkeypatch):

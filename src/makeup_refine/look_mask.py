@@ -231,6 +231,11 @@ def technique_mask(size, points, style, selected):
                                    fill=255, width=max(1, round(ied * .01)))
         elif region in ('eyeliner', 'eyeshadow'):
             expansion = _style_expansion(style)
+            # Keep the visible aperture plus a small skin buffer opaque to the
+            # provider. This gives eyeliner a little room above the lashes,
+            # while preventing pigment or shadow from visually lowering the
+            # upper lid and making the eye look smaller.
+            aperture_clearance = max(1, round(eye_span * .015))
             for upper, lower in zip(UPPER_EYES, LOWER_EYES):
                 coords = xy[list(set(upper) | set(lower))]
                 x0, y0 = coords.min(axis=0)
@@ -238,13 +243,21 @@ def technique_mask(size, points, style, selected):
                 dx = eye_span * (.14 if technique_id == 'eyeliner_05' else .08) * expansion
                 dy = eye_span * (.025 if region == 'eyeliner' else .055) * expansion
                 draw.ellipse((x0-dx, y0-dy, x1+dx, y1+dy), fill=255)
-                draw.polygon([tuple(xy[i]) for i in upper] +
-                             [tuple(xy[i]) for i in reversed(lower)], fill=0)
+                aperture = Image.new('L', size, 0)
+                ImageDraw.Draw(aperture).polygon(
+                    [tuple(xy[i]) for i in upper] +
+                    [tuple(xy[i]) for i in reversed(lower)], fill=255)
+                protected = aperture.filter(ImageFilter.MaxFilter(
+                    2 * aperture_clearance + 1))
+                draw.bitmap((0, 0), protected, fill=0)
             if technique_id == 'eyeliner_05':
+                across = (xy[263] - xy[33]) / max(eye_span, 1e-6)
+                upward = np.array([across[1], -across[0]])
                 for outer_index, direction in ((33, -1), (263, 1)):
                     x, y = xy[outer_index]
-                    draw.line((x, y, x + direction * eye_span * .11,
-                               y - eye_span * .035), fill=255,
+                    start = np.array((x, y)) + upward * eye_span * .025
+                    end = start + direction * across * eye_span * .11 + upward * eye_span * .035
+                    draw.line((*start, *end), fill=255,
                               width=max(2, round(eye_span * .028)))
         elif region == 'lips':
             shape = (lip_center_highlight_mask(size, points) if technique_id == 'lips_02'

@@ -194,10 +194,12 @@ def test_enhancement_prompt_uses_preselected_technique(image):
     assert 'Brighten the lip color' in prompt
     assert 'optional facial base makeup is allowed' in prompt
     assert 'softly fill and clean the brow arch' not in prompt
-    assert 'Eyeliner must not enter the eye opening' in prompt
+    assert 'must not enter the eye opening' in prompt
     assert 'one coordinated look' in prompt
     assert 'must not be used to justify a larger edit area' in prompt
     assert 'must never make either eye opening smaller' in prompt
+    assert 'small visible skin gap' in prompt
+    assert 'blending upward and outward' in prompt
 
 
 def test_identical_pair_skips_paid_comparison(image):

@@ -135,6 +135,8 @@ class OpenAIProvider:
                        'eye position and size, iris size, face proportions and mouth shape exactly. '
                        'A selected eyelid or eyeliner technique may keep each eye opening the same or make it slightly larger, '
                        'but never smaller; do not lower the upper lid, narrow the aperture, or anatomically enlarge or reshape the eyes. '
+                       'Keep eyeliner on the upper-lid skin just outside the upper lash roots with a small visible skin gap; '
+                       'keep eyeshadow above and outside the visible eye opening, blending upward and outward. '
                        'Preserve the original hairline and hair silhouette, volume, width, part and flyaways exactly; '
                        'do not widen or regenerate the hair. '
                        'natural skin texture, and all regions outside the selected techniques and permitted facial base makeup. '

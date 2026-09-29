@@ -62,7 +62,7 @@ The accepted `enhancedImage.png` is the API photograph at the original working s
 
 The protected-pixel gate now uses provisional limits of mean RGB delta ≤6 and at most 25% of protected pixels above an 8-level delta. These limits account for modest provider tone/texture variation around a permitted base-makeup edit. They do not approve a result by themselves: facial landmark checks and the original-versus-enhanced preservation comparison still reject scene or identity changes.
 
-Eye makeup is constrained separately: eyeliner and eyeshadow must not enter the eye opening or cover the visible iris/eye white. The prompt does not require eyeliner to follow a particular lash-line thickness or eyeshadow placement.
+Eye makeup is constrained separately: eyeliner stays on upper-lid skin just outside the lash roots with a small visible skin gap, and eyeshadow blends upward and outward. Neither may enter the eye opening or cover the visible iris/eye white. The generated mask also protects the aperture plus a small buffer; the prompt does not require a particular lash-line thickness.
 
 The image-edit request now states these geometry constraints before generation: preserve inter-eye, eye-to-nose and nose-to-mouth distances, nose and mouth widths, facial symmetry, eye opening and the face outline. The post-generation checks remain as verification because a prompt cannot technically guarantee that an image model will follow every constraint.
 

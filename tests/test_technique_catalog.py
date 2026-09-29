@@ -147,8 +147,8 @@ def test_measured_placement_can_be_selected_when_model_omits_proposals():
     complete = catalog.complete_placement_proposals(raw)
     selected = catalog.select(complete).selected
     assert [item['technique_id'] for item in selected] == [
-        'lips_02', 'eyeliner_05', 'eyeshadow_07', 'brow_06']
-    assert len({item['region'] for item in selected}) == 4
+        'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02', 'blush_01']
+    assert len({item['region'] for item in selected}) == 5
     assert selected[0]['intensity'] == .7
     assert all(item.technique_id != 'lips_01' for item in complete.proposals)
 
@@ -180,15 +180,15 @@ def test_visible_mouth_is_not_dropped_when_model_confuses_no_lipstick_with_occlu
     assert promoted.visibility['lips'].detection_confidence == .9
 
 
-def test_style_baselines_fill_three_distinct_visible_regions_without_claiming_defects():
+def test_style_baselines_fill_five_distinct_visible_regions_without_claiming_defects():
     catalog = TechniqueCatalog()
     plan = catalog.select(catalog.complete_placement_proposals(analysis([])))
     assert [item['technique_id'] for item in plan.selected] == [
-        'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02']
+        'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02', 'blush_01']
     assert all(item['selection_basis'] == 'style_baseline' for item in plan.selected)
     assert all(item['evidence'][0]['feature'] == 'anatomical_region_visible'
                for item in plan.selected)
-    assert len({item['region'] for item in plan.selected}) >= 3
+    assert len({item['region'] for item in plan.selected}) >= 5
     hidden = {region: measure(False) for region in
               ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush', 'nose_contour', 'foundation')}
     assert catalog.select(catalog.complete_placement_proposals(
@@ -203,8 +203,8 @@ def test_visible_brow_and_lip_fallbacks_fill_plan_when_blush_is_unavailable():
     plan = catalog.select(catalog.complete_placement_proposals(
         analysis([], visibility=visibility)))
     ids = [item['technique_id'] for item in plan.selected]
-    assert ids == ['eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02']
-    assert len({item['region'] for item in plan.selected}) >= 3
+    assert ids == ['eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02', 'nose_02']
+    assert len({item['region'] for item in plan.selected}) >= 5
     assert all(item['selection_basis'] == 'style_baseline' for item in plan.selected)
 
 

@@ -13,8 +13,8 @@ from .models import StrictModel, SpikeError
 CATALOG_PATH = Path(__file__).with_name('technique_mapping_table.json')
 MIN_CONFIDENCE = .85
 MAX_SELECTED_TECHNIQUES = 7
-MIN_DISTINCT_REGIONS = 3
-PLANNED_REGION_TARGET = 4
+MIN_DISTINCT_REGIONS = 5
+PLANNED_REGION_TARGET = 5
 MAX_PLACEMENT_INTENSITY = .7
 MAX_NOSE_INTENSITY = .35
 PROVISIONAL_PLACEMENT_INTENSITY = {
@@ -23,13 +23,14 @@ PROVISIONAL_PLACEMENT_INTENSITY = {
     'blush': .65,
 }
 PROVISIONAL_TECHNIQUE_INTENSITY = {'lips_02': .7, 'eyeliner_05': .7}
-# The first three are the normal everyday baseline.  Brow/lip placement are
-# conservative fallbacks when one of those regions is occluded or not usable;
-# they keep the plan useful without inventing a facial defect.
+# These five are the normal everyday baseline. They are placement refinements,
+# not defect claims, and are selected only when the anatomical region is visible.
 STYLE_BASELINE_PRIORITY = (
-    # Keep the core eye/brow/lip areas ahead of optional blush. The minimum
-    # plan must remain useful even when the person already wears strong makeup.
-    'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02', 'blush_01'
+    # Keep the core eye/brow/lip areas ahead of optional blush.
+    'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02', 'blush_01',
+    # These visible-only placements fill a fifth distinct region when a core
+    # baseline area is occluded, without claiming a facial defect.
+    'nose_02', 'foundation_02'
 )
 STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
 EXPERIMENTAL_THRESHOLDS = {

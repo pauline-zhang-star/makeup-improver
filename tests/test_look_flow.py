@@ -135,19 +135,21 @@ def test_unchanged_and_uncertain_areas_are_omitted(image):
     assert [s['area'] for s in result['steps']] == ['lips']
 
 
-def test_only_observed_planned_areas_count_toward_three_step_goal():
+def test_only_observed_planned_areas_count_toward_five_step_goal():
     selected = [{'technique_id': 'lips_02', 'region': 'lips'},
                 {'technique_id': 'eyeliner_05', 'region': 'eyeliner'},
-                {'technique_id': 'blush_01', 'region': 'blush'}]
-    explanation = {'steps': [step('eyeliner'), step('lashes'), step('blush'),
+                {'technique_id': 'blush_01', 'region': 'blush'},
+                {'technique_id': 'brow_06', 'region': 'brows'},
+                {'technique_id': 'foundation_02', 'region': 'foundation'}]
+    explanation = {'steps': [step('eyeliner'), step('eyebrows'), step('blush'),
                              step('lips'), step('complexion')]}
     coverage = reconcile_guidance_with_plan(explanation, selected)
     assert coverage['visibleChangeCount'] == 5
-    assert coverage['confirmedPlannedChangeCount'] == 3
+    assert coverage['confirmedPlannedChangeCount'] == 5
     assert coverage['minimumVisibleChangesMet']
-    assert coverage['unexpectedMakeupChanges'] == ['complexion', 'lashes']
-    assert [s['area'] for s in explanation['steps']] == ['eyeliner', 'blush', 'lips']
-    assert 'center of the lower lip' in explanation['steps'][-1]['instruction']
+    assert coverage['unexpectedMakeupChanges'] == []
+    assert [s['area'] for s in explanation['steps']] == ['eyeliner', 'eyebrows', 'blush', 'lips', 'complexion']
+    assert 'center of the lower lip' in explanation['steps'][3]['instruction']
 
 
 def test_unplanned_model_claims_cannot_satisfy_visibility_goal():

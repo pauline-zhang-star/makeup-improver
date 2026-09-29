@@ -43,7 +43,9 @@ def preserve_complexion_texture(original, candidate, skin_mask,
     source_detail = source - source_low
     edited_detail = edited - edited_low
     weight = np.asarray(skin_mask, dtype=np.float32)[..., None] / 255.
-    support = weight[..., 0] > .5
+    # Technique masks carry their requested intensity, so a placement mask
+    # may legitimately peak below 50% while still covering the region.
+    support = weight[..., 0] > .05
     if not np.any(support):
         raise SpikeError('QUALITY_CHECK_FAILED', 'The foundation texture mask is empty.')
     source_energy = float(np.mean(np.abs(source_detail[support])))

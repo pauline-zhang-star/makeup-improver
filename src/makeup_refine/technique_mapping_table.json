@@ -3,8 +3,8 @@
   "notes": "Machine-readable mirror of technique-mapping-table.md. If the two ever disagree, technique-mapping-table.md is the source of truth and this file should be regenerated from it — do not hand-edit this file independently.",
   "global_rules": {
     "max_total_suggestions_per_job": 7,
-    "planned_region_target_when_visible": 4,
-    "minimum_visible_changes_goal": 3,
+    "planned_region_target_when_visible": 5,
+    "minimum_visible_changes_goal": 5,
     "selection_when_over_cap": "rank by detection_confidence descending, keep top N up to cap",
     "padding_to_reach_cap_allowed": false,
     "unit_normalization_default": "IED",
@@ -183,6 +183,7 @@
         {
           "id": "brow_06",
           "adjustment_type": "placement",
+          "style_baseline": true,
           "trigger": {"feature": "brow_edge_definition", "comparator": "below_threshold"},
           "technique": "define_lower_edge",
           "instruction_template": "Slightly sharpen the lower edge of the brow so its shape reads more clearly, without moving the edge.",
@@ -218,6 +219,7 @@
         {
           "id": "lips_02",
           "adjustment_type": "placement",
+          "style_baseline": true,
           "trigger": {"feature": "lower_lip_fullness_estimate", "comparator": "below_threshold"},
           "technique": "center_highlight",
           "instruction_template": "Add a very thin highlight to the center of the lower lip to suggest fullness, without altering lip outline."
@@ -263,6 +265,7 @@
         {
           "id": "nose_02",
           "adjustment_type": "placement",
+          "style_baseline": true,
           "trigger": {"feature": "bridge_flatness_estimate", "comparator": "above_threshold"},
           "technique": "bridge_highlight",
           "instruction_template": "Apply a thin highlight down the center of the nose bridge to add dimension."
@@ -293,6 +296,7 @@
         {
           "id": "foundation_02",
           "adjustment_type": "placement",
+          "style_baseline": true,
           "trigger": {"feature": "cheekbone_highlight_estimate", "comparator": "below_threshold"},
           "technique": "highlight_points",
           "instruction_template": "Add a small amount of highlight at the top of the cheekbone and down the nose bridge center."

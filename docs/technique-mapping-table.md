@@ -1,4 +1,4 @@
-# Technique Mapping Table (v1.3 — adds style polish toward three visible areas)
+# Technique Mapping Table (v1.3 — adds style polish toward five visible areas)
 
 **Companion file:** [`src/makeup_refine/technique_mapping_table.json`](../src/makeup_refine/technique_mapping_table.json) mirrors every entry in this document in machine-readable form (ids, trigger conditions, instruction templates, caps). Load that file directly rather than transcribing the markdown tables below by hand — hand-transcription is a likely source of copy errors. This markdown file is the source of truth for *content and reasoning*; the JSON file is the source of truth for *exact field values* and should be regenerated from this document if the two ever disagree.
 
@@ -13,7 +13,7 @@ photo
 → detection (facial landmarks + color analysis)
 → measured features (e.g. eye_aspect_ratio, inter_eye_distance, lip_skin_contrast)
 → match measured triggers and assess which anatomical regions are visible
-→ local rules retain measured matches, then add style-polish techniques toward 4 planned regions
+→ local rules retain measured matches, then add style-polish techniques toward 5 planned regions
 → keep at most 7 techniques in total
 → AI must cite which measured feature + threshold justified each suggestion (traceability requirement)
 → localized edit call executes the instruction
@@ -35,13 +35,13 @@ photo
 1. Evaluate every region's trigger conditions independently and collect all matches.
 2. Apply each region's own mutual-exclusivity rules first (e.g. `lips_01` vs `lips_04`) to narrow matches within a region.
 3. If more than 7 matches remain across all regions, rank by `detection_confidence` (highest first) and keep the top 7. Do not default to a fixed region priority order (e.g. always eyes before lips) — this biases every result toward the same regions regardless of what the photo actually needs.
-4. If measured matches cover fewer than 4 distinct regions, add the v1.3 style-polish techniques below in confidently visible regions toward 4 planned regions. This leaves room for one edit that fails to appear while aiming for 3 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
+4. If measured matches cover fewer than 5 distinct regions, add the v1.3 style-polish techniques below in confidently visible regions toward 5 planned regions. This leaves room for an edit that fails to appear while aiming for 5 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
 
-**Product-owner revision:** aim for at least three *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for four distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
+**Product-owner revision:** aim for at least five *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for five distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
 
 ### v1.3 style-polish entries
 
-These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered after measured-trigger entries, in this order, only when needed toward four distinct planned regions. They use placement intensity caps and the same identity safeguards as other entries. If blush is not confidently visible, the selector may use the conservative brow-edge or lower-lip-center fallback below; these are visibility-only styling options and do not assert a defect.
+These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered after measured-trigger entries, in this order, only when needed toward five distinct planned regions. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
 
 | id | region | technique | instruction |
 |---|---|---|---|
@@ -50,6 +50,8 @@ These entries require anatomical region visibility with confidence at least 0.85
 | `eyeshadow_07` | eyeshadow | soft_outer_lid_blend | Blend a soft midtone over the outer third of the upper lid, fading gently upward while leaving the inner lid light. |
 | `brow_06` | brows | define_lower_edge | Slightly sharpen the lower edge of the existing brow without moving its edge. |
 | `lips_02` | lips | center_highlight | Add a very thin highlight to the center of the lower lip to suggest fullness, without altering lip outline. |
+| `nose_02` | nose_contour | bridge_highlight | Apply a thin highlight down the center of the nose bridge to add dimension. |
+| `foundation_02` | foundation | highlight_points | Add a small amount of highlight at the top of the cheekbone and down the nose bridge center. |
 
 **"AND" in a trigger condition means all listed conditions must independently pass.** If any one condition in a multi-part trigger (e.g. threshold check + confidence check + detection check) fails, the whole entry does not match — skip it, do not partially apply it or substitute a default value for the missing condition.
 

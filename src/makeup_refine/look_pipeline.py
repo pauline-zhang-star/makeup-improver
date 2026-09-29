@@ -201,25 +201,40 @@ class LookPipeline:
                           **coverage,
                           'imageEditCalls': len(attempts)}
 
-    def recompose(self, original, candidate, style=None):
-        """Replay local compositing on a saved candidate; no editor or explainer call."""
+    def recompose(self, original, candidate, style=None, selected=None):
+        """Replay local compositing on a saved candidate; no editor or explainer call.
+
+        ``selected`` should be the saved technique plan. Older runs without a
+        plan use the legacy full-style mask and are explicitly flagged.
+        """
         style = MakeupStyle(style or MakeupStyle.AUTO)
         points, _ = check_face(original, self.landmarks)
+        fallback = not selected
+        mask = (makeup_mask(original.size, points, style) if fallback
+                else direct_edit_mask(original.size, points, style, selected))
         enhanced, metadata = self._compose(original, to_srgb(candidate), style, points,
-                                            makeup_mask(original.size, points, style))
+                                            mask, selected=selected or [])
         return enhanced, {**metadata, 'status': 'instructions_unavailable', 'steps': [],
                           'assessments': [], 'comparisonStatus': 'pending_new_comparison',
                           'imageEditCalls': 0, 'comparisonCalls': 0,
+                          'legacyFullStyleMaskFallback': fallback,
                           'message': 'Locally recomposited image. Compare this exact pair before showing makeup instructions.'}
 
-    def _compose(self, original, candidate, style, points, mask, lips_selected=True,
-                 localized_lip_only=False, outer_wing_selected=False):
+    def _compose(self, original, candidate, style, points, mask, selected=(),
+                 lips_selected=None, localized_lip_only=False, outer_wing_selected=None):
         aligned, alignment = align_candidate(original, candidate, points, self.landmarks)
         aligned_points = validate_face(self.landmarks.detect(aligned))
         lip_deviation = float(np.linalg.norm((np.asarray(aligned_points) -
                               np.asarray(points))[LIPS + INNER_LIPS], axis=1).max())
-        base_mask = complexion_mask(original.size, points) if style != MakeupStyle.AUTO else None
+        # A saved plan already contains any selected foundation technique's
+        # small landmark mask. Only old runs without a plan use the legacy
+        # full-style complexion fallback.
+        base_mask = complexion_mask(original.size, points) if (not selected and style != MakeupStyle.AUTO) else None
         base = composite_complexion_base(original, aligned, base_mask) if base_mask else original
+        if lips_selected is None:
+            lips_selected = (not selected) or any(item.get('region') == 'lips' for item in selected)
+        if outer_wing_selected is None:
+            outer_wing_selected = any(item.get('technique_id') == 'eyeliner_05' for item in selected)
         lips = lip_mask(original.size, points, style)
         other_mask = (mask if localized_lip_only else
                       Image.fromarray(np.where(np.asarray(lips) > 0, 0,

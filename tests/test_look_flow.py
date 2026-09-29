@@ -238,8 +238,7 @@ def test_facial_base_allowed_while_background_stays_protected():
         points[index] = (.5 + .3 * np.cos(angle), .5 + .4 * np.sin(angle))
     plan = Provider().plan_techniques(original, MakeupStyle.AUTO, points)
     selected = np.asarray(technique_mask(original.size, points, MakeupStyle.AUTO, plan.selected))
-    mask = direct_edit_mask(original.size, points, MakeupStyle.AUTO, plan.selected,
-                            include_complexion=True)
+    mask = direct_edit_mask(original.size, points, MakeupStyle.AUTO, plan.selected)
     base_only = (np.asarray(mask) > 0) & (selected == 0)
     assert base_only.sum() == 0
     pixels = np.asarray(original).copy()
@@ -481,7 +480,25 @@ def test_recompose_uses_no_editor_or_explainer_and_clears_old_guidance(image):
     assert np.array_equal(enhanced, image)
     assert result['imageEditCalls'] == result['comparisonCalls'] == 0
     assert result['steps'] == [] and result['comparisonStatus'] == 'pending_new_comparison'
+    assert result['legacyFullStyleMaskFallback'] is True
     assert result['lipBlendQuality']['qualityPassed']
+
+
+def test_recompose_uses_saved_selected_mask_and_only_selected_lip_transfer(image):
+    from makeup_refine.look_mask import direct_edit_mask
+    provider = Provider()
+    selected = [{'technique_id': 'eyeliner_05', 'region': 'eyeliner'}]
+    enhanced, result = LookPipeline(provider, provider, Detector()).recompose(
+        image, image.copy(), MakeupStyle.WORK, selected)
+    points = Detector().detect(image)[0]
+    expected = direct_edit_mask(image.size, points, MakeupStyle.WORK, selected)
+    assert np.array_equal(np.asarray(enhanced), np.asarray(image))
+    assert result['legacyFullStyleMaskFallback'] is False
+    assert result['maskCoverageFraction'] == pytest.approx(
+        float(np.mean(np.asarray(expected) > 0)))
+    assert result['faceBaseCoverageFraction'] == 0
+    assert result['lipTransferMode'] == 'unchanged'
+    assert result['alignment']
 
 
 def test_unplanned_global_edit_is_locked_to_original_outside_makeup_mask(image):
@@ -619,5 +636,6 @@ def test_recompose_cli_is_local_and_does_not_reuse_steps(tmp_path, image, monkey
     assert recompose_cli.main() == 0
     result = json.loads((output / 'result.json').read_text())
     assert result['steps'] == [] and result['imageEditCalls'] == result['comparisonCalls'] == 0
+    assert result['legacyFullStyleMaskFallback'] is True
     assert (output / 'enhancedImage.png').exists() and (output / 'review.html').exists()
     assert json.loads((source / 'result.json').read_text())['steps'] == [step()]

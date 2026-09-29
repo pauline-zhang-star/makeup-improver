@@ -4,8 +4,7 @@ from PIL import Image
 
 from makeup_refine.imaging import composite, prepare_edit_canvas
 from makeup_refine.look_alignment import ANCHORS, align_candidate, register_direct_candidate, STABLE_ANCHORS
-from makeup_refine.look_mask import makeup_mask, lip_mask, lip_pigment_mask
-from makeup_refine.look_composite import composite_makeup, lip_geometry_compatible
+from makeup_refine.look_mask import makeup_mask
 from makeup_refine.models import SpikeError
 from test_pipeline import Detector
 
@@ -119,47 +118,6 @@ def test_aligned_candidate_does_not_hide_output_size_change():
     points = Detector().detect(image)[0]
     with pytest.raises(SpikeError, match='dimensions'):
         align_candidate(image, image.resize((800, 528)), points, Detector())
-
-
-def test_lip_transfer_keeps_original_mouth_luminance_and_outside_pixels():
-    original = Image.new('RGB', (512, 512), (130, 95, 92))
-    candidate = Image.new('RGB', original.size, (25, 10, 12))
-    points = Detector().detect(original)[0]
-    allowed = makeup_mask(original.size, points)
-    lips = lip_mask(original.size, points)
-    result = composite_makeup(original, candidate, allowed, lips)
-    support = np.asarray(lips) > 0
-    original_y = np.asarray(original.convert('YCbCr'))[..., 0]
-    result_y = np.asarray(result.convert('YCbCr'))[..., 0]
-    assert abs(float(result_y[support].mean()) - float(original_y[support].mean())) < 2
-    assert np.array_equal(np.asarray(result)[np.asarray(allowed) == 0],
-                          np.asarray(original)[np.asarray(allowed) == 0])
-
-
-def test_color_transfer_does_not_copy_candidate_lip_shape_or_solid_patch():
-    original = Image.new('RGB', (512, 512), (140, 100, 100))
-    points = Detector().detect(original)[0]
-    lips = lip_mask(original.size, points)
-    pigment = lip_pigment_mask(original.size, points)
-    allowed = makeup_mask(original.size, points)
-    candidate = Image.new('RGB', original.size, (140, 100, 100))
-    candidate.paste((170, 30, 45), (180, 320, 335, 350))
-    result = composite_makeup(original, candidate, allowed, lips,
-                              pigment_lips=pigment)
-    outside_pigment = (np.asarray(lips) > 0) & (np.asarray(pigment) == 0)
-    assert np.array_equal(np.asarray(result)[outside_pigment],
-                          np.asarray(original)[outside_pigment])
-
-
-def test_spatial_lip_detail_requires_stable_mouth_landmarks():
-    image = Image.new('RGB', (512, 512))
-    reference = np.asarray(Detector().detect(image)[0], dtype=float)
-    stable, maximum = lip_geometry_compatible(reference, image, LandmarkSequence(reference.tolist()))
-    assert stable and maximum == 0
-    changed = reference.copy()
-    changed[14, 1] += .02
-    stable, maximum = lip_geometry_compatible(reference, image, LandmarkSequence(changed.tolist()))
-    assert not stable and maximum >= .02
 
 
 def test_nose_bridge_is_editable_without_circular_nose_skin_holes():

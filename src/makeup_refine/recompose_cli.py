@@ -34,8 +34,9 @@ def main():
         args.output.mkdir(parents=True, mode=0o700)
         original.save(args.output / 'originalImage.png')
         shutil.copyfile(args.source / 'candidateImage.png', args.output / 'candidateImage.png')
+        selected = (previous.get('techniquePlan') or {}).get('selected', [])
         enhanced, report = LookPipeline(None, None, detector).recompose(
-            original, candidate, previous.get('requestedStyle', 'Auto'))
+            original, candidate, previous.get('requestedStyle', 'Auto'), selected)
         enhanced.save(args.output / 'enhancedImage.png')
         report.update(candidateImage='candidateImage.png', recomposedFrom=str(args.source.resolve()),
                       techniquePlan=previous.get('techniquePlan'),

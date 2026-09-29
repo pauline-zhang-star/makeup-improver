@@ -41,13 +41,12 @@ def _style_expansion(style):
     return 1.0 if MakeupStyle(style or MakeupStyle.AUTO) == MakeupStyle.AUTO else 1.25
 
 
-def direct_edit_mask(size, points, style, selected, include_complexion=True):
+def direct_edit_mask(size, points, style, selected):
     """Exactly the selected techniques' masks, without full-face compositing.
 
     Full-face complexion editing is intentionally not added here. Foundation
     techniques already carry their own small, landmark-anchored masks inside
-    ``technique_mask``. ``include_complexion`` remains accepted for call-site
-    compatibility during migration, but is intentionally unused.
+    ``technique_mask``.
 
     This landmark approximation is not semantic skin segmentation. Glasses and
     hair crossing the face still need the paired-image preservation assessment.

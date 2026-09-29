@@ -16,6 +16,14 @@ FACE_OVAL = (10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361,
              150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103,
              67, 109)
 
+# Techniques in the same visual neighborhood can share a small transition
+# margin. The margin is only enabled when at least two members are selected;
+# it never turns an unselected feature into an editable region by itself.
+ADJACENT_TECHNIQUE_GROUPS = (
+    frozenset(('brows', 'eyeliner', 'eyeshadow', 'lashes')),
+    frozenset(('nose_contour', 'foundation', 'blush')),
+)
+
 
 def complexion_mask(size, points):
     """Inward-feathered facial skin, excluding openings and lip pigment."""
@@ -201,12 +209,23 @@ def makeup_mask(size, points, style=MakeupStyle.AUTO):
 
 
 def technique_mask(size, points, style, selected):
-    """Restrict the existing cosmetic mask to the preselected technique regions."""
+    """Restrict edits to selected techniques with bounded group transitions."""
     w, h = size
     xy = np.asarray(points, dtype=float) * (w, h)
     eye_span = float(np.linalg.norm(xy[263] - xy[33]))
     ied = float(np.linalg.norm((xy[33] + xy[133]) / 2 - (xy[263] + xy[362]) / 2))
-    allowed = np.zeros((h, w), dtype=np.uint8)
+    raw_by_region = {}
+    selected_regions = {item['region'] for item in selected}
+    eye_protected = Image.new('L', size, 0)
+    eye_protected_draw = ImageDraw.Draw(eye_protected)
+    aperture_clearance = max(1, round(eye_span * .015))
+    for upper, lower in zip(UPPER_EYES, LOWER_EYES):
+        aperture = Image.new('L', size, 0)
+        ImageDraw.Draw(aperture).polygon(
+            [tuple(xy[i]) for i in upper] +
+            [tuple(xy[i]) for i in reversed(lower)], fill=255)
+        protected = aperture.filter(ImageFilter.MaxFilter(2 * aperture_clearance + 1))
+        eye_protected_draw.bitmap((0, 0), protected, fill=255)
     for item in selected:
         region = item['region']
         technique_id = item['technique_id']
@@ -235,7 +254,6 @@ def technique_mask(size, points, style, selected):
             # provider. This gives eyeliner a little room above the lashes,
             # while preventing pigment or shadow from visually lowering the
             # upper lid and making the eye look smaller.
-            aperture_clearance = max(1, round(eye_span * .015))
             for upper, lower in zip(UPPER_EYES, LOWER_EYES):
                 coords = xy[list(set(upper) | set(lower))]
                 x0, y0 = coords.min(axis=0)
@@ -243,13 +261,7 @@ def technique_mask(size, points, style, selected):
                 dx = eye_span * (.14 if technique_id == 'eyeliner_05' else .08) * expansion
                 dy = eye_span * (.025 if region == 'eyeliner' else .055) * expansion
                 draw.ellipse((x0-dx, y0-dy, x1+dx, y1+dy), fill=255)
-                aperture = Image.new('L', size, 0)
-                ImageDraw.Draw(aperture).polygon(
-                    [tuple(xy[i]) for i in upper] +
-                    [tuple(xy[i]) for i in reversed(lower)], fill=255)
-                protected = aperture.filter(ImageFilter.MaxFilter(
-                    2 * aperture_clearance + 1))
-                draw.bitmap((0, 0), protected, fill=0)
+                draw.bitmap((0, 0), eye_protected, fill=0)
             if technique_id == 'eyeliner_05':
                 across = (xy[263] - xy[33]) / max(eye_span, 1e-6)
                 upward = np.array([across[1], -across[0]])
@@ -303,6 +315,26 @@ def technique_mask(size, points, style, selected):
             strength = min(1., strength * 1.5)
         elif region == 'eyeshadow':
             strength = min(.8, strength * 1.7)
-        allowed = np.maximum(allowed, np.rint(np.asarray(shape) * strength).astype(np.uint8))
+        region_mask = np.rint(np.asarray(shape) * strength).astype(np.uint8)
+        raw_by_region[region] = np.maximum(raw_by_region.get(region, 0), region_mask)
+
+    allowed = np.zeros((h, w), dtype=np.uint8)
+    for region, region_mask in raw_by_region.items():
+        allowed = np.maximum(allowed, region_mask)
+
+    # Merge only selected regions that are visually adjacent. A short
+    # dilation supplies a shared transition margin so the editor can blend
+    # the group as one continuous area instead of painting isolated patches.
+    for group in ADJACENT_TECHNIQUE_GROUPS:
+        present = [region for region in group if region in selected_regions and region in raw_by_region]
+        if len(present) < 2:
+            continue
+        group_mask = np.maximum.reduce([raw_by_region[region] for region in present])
+        transition = max(1, round(eye_span * (.018 if 'eyeliner' in group else .022)))
+        expanded = Image.fromarray(group_mask).filter(ImageFilter.MaxFilter(2 * transition + 1))
+        allowed = np.maximum(allowed, np.asarray(expanded))
+
+    # The transition margin must never open the eye aperture or its buffer.
+    allowed[np.asarray(eye_protected) > 0] = 0
     base = np.asarray(makeup_mask(size, points, style))
     return Image.fromarray(np.minimum(base, allowed))

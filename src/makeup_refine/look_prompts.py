@@ -49,7 +49,9 @@ def enhancement_prompt(style, plan=None):
                      'makeup look rather than a checklist of separate changes. This is a rendering and '
                      'color-harmony instruction only — it must not be used to justify a larger edit area, '
                      'a stronger effect than the stated intensity/color delta, or any change outside the '
-                     'selected techniques. ')
+                     'selected techniques. When selected techniques are adjacent, treat their union as one '
+                     'bounded continuous makeup area and blend the transition inside that area; do not create '
+                     'separate hard-edged patches or use cohesion as permission to edit an unselected feature. ')
     return (
         'Edit the supplied original selfie into ONE finished, improved makeup photograph. '
         'Only alter cosmetic pigment, facial base-makeup finish and lash appearance inside the transparent mask. '

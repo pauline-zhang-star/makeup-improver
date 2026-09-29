@@ -64,6 +64,8 @@ The protected-pixel gate now uses provisional limits of mean RGB delta ≤6 and 
 
 Eye makeup is constrained separately: eyeliner stays on upper-lid skin just outside the lash roots with a small visible skin gap, and eyeshadow blends upward and outward. Neither may enter the eye opening or cover the visible iris/eye white. The generated mask also protects the aperture plus a small buffer; the prompt does not require a particular lash-line thickness.
 
+When selected techniques share a visual neighborhood, their masks are merged into a bounded group with a short transition margin. The margin lets one image-generation pass blend adjacent pigment and finish changes without opening an unselected feature or turning the full face into an editable canvas.
+
 The image-edit request now states these geometry constraints before generation: preserve inter-eye, eye-to-nose and nose-to-mouth distances, nose and mouth widths, facial symmetry, eye opening and the face outline. The post-generation checks remain as verification because a prompt cannot technically guarantee that an image model will follow every constraint.
 
 The acceptance check also compares eye-opening, nose-width and mouth-width ratios between the original and generated image. A global shift or scale can pass landmark alignment while still changing these local proportions, so a relative change above 5% triggers the bounded correction retry. Eye-opening is directional: either eye may stay the same or become slightly more open for selected eyelid makeup, but any decrease is rejected regardless of how small it is.

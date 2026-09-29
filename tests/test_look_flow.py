@@ -200,6 +200,7 @@ def test_enhancement_prompt_uses_preselected_technique(image):
     assert 'must never make either eye opening smaller' in prompt
     assert 'small visible skin gap' in prompt
     assert 'blending upward and outward' in prompt
+    assert 'bounded continuous makeup area' in prompt
 
 
 def test_identical_pair_skips_paid_comparison(image):

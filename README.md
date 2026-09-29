@@ -66,7 +66,7 @@ Eye makeup is constrained separately: eyeliner and eyeshadow must not enter the 
 
 The image-edit request now states these geometry constraints before generation: preserve inter-eye, eye-to-nose and nose-to-mouth distances, nose and mouth widths, facial symmetry, eye opening and the face outline. The post-generation checks remain as verification because a prompt cannot technically guarantee that an image model will follow every constraint.
 
-The acceptance check also compares eye-opening, nose-width and mouth-width ratios between the original and generated image. A global shift or scale can pass landmark alignment while still changing these local proportions, so a relative change above 5% triggers the bounded correction retry.
+The acceptance check also compares eye-opening, nose-width and mouth-width ratios between the original and generated image. A global shift or scale can pass landmark alignment while still changing these local proportions, so a relative change above 5% triggers the bounded correction retry. Eye-opening is directional: either eye may stay the same or become slightly more open for selected eyelid makeup, but any decrease is rejected regardless of how small it is.
 
 The older local compositing experiment remains available for diagnosis on a saved candidate, without an API call:
 

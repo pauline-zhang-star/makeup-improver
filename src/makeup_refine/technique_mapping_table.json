@@ -39,7 +39,7 @@
           "adjustment_type": "placement",
           "trigger": {"feature": ["eye_tilt_angle", "eye_aspect_ratio"], "comparator": "matches_downturned_or_elongated"},
           "technique": "outer_wing_lift",
-          "instruction_template": "Extend the eyeliner along the lower lash line slightly upward at the outer corner."
+          "instruction_template": "Extend a fine tapered wing from the outer third of the upper lash line slightly upward and outward; leave visible skin between pigment and the eye opening."
         },
         {
           "id": "eyeliner_03",

@@ -13,6 +13,17 @@ STYLE_BRIEFS = {
     MakeupStyle.SOFT_GLAM: 'Soft Glam: softly sculpted eye makeup, defined lashes, and blended luminous finishes without changing lighting.',
 }
 
+STYLE_RENDERING_RULES = {
+    MakeupStyle.AUTO: 'Keep contrast low and edits understated, with no prescribed style signature.',
+    MakeupStyle.NATURAL: 'Use sheer, skin-like finishes, soft edges, low contrast and restrained lip saturation.',
+    MakeupStyle.WORK: 'Use tidy, balanced definition, controlled shine and softly neutral color with no dramatic wing.',
+    MakeupStyle.KOREAN_SOFT: 'Use softly diffused upper-lid color, lifted fresh blush and a softly graduated lip tint with a clearer center and feathered edges.',
+    MakeupStyle.FRESH: 'Use fresh cheek color and lively but balanced lips, keeping eye definition light and skin texture visible.',
+    MakeupStyle.DATE_NIGHT: 'Use more defined outer eyes and coordinated lip color, with deeper contrast kept blended and contained.',
+    MakeupStyle.SOPHISTICATED: 'Use precise tapered edges, controlled color contrast and coordinated satin-like finishes without added shine everywhere.',
+    MakeupStyle.SOFT_GLAM: 'Use more visible outer-eye depth, defined lashes and blended cheek/lip color while keeping transitions smooth.',
+}
+
 
 def enhancement_prompt(style, plan=None):
     style = MakeupStyle(style or MakeupStyle.AUTO)
@@ -48,13 +59,15 @@ def enhancement_prompt(style, plan=None):
                        if item['adjustment_type'] == 'placement'
                        else 'relative OKLCH delta ' + json.dumps(item['color_delta']))
             techniques.append(item['technique_id'] + ': ' + item['instruction'] + ' (' + control + ').')
+        lip_specific_direction = (
+            'For the selected lower-lip center highlight, add a small light-catching accent only at the '
+            'center of the lower lip; preserve its overall hue, saturation, gloss, outline and corners. '
+            if any(item['technique_id'] == 'lips_02' for item in selected) else '')
         direction = ('Apply these measured, selected makeup techniques: ' +
                      ' '.join(techniques) + ' '
                      'Demonstrate EACH selected technique in its own targeted area; do not silently skip one '
                      'or substitute a different cosmetic change. Placement entries change placement or '
-                     'highlight only, not the entire region color or finish. For a lower-lip center highlight, '
-                     'add a small light-catching accent strictly at the center of the lower lip; preserve '
-                     'the original lip hue, saturation, gloss level, outline and mouth corners. '
+                     'highlight only, not the entire region color or finish. ' + lip_specific_direction +
                      'Do not add unselected feature edits; optional facial base makeup is allowed as described below. '
                      'For a color entry, use only the supplied relative '
                      'OKLCH delta, never a fixed product shade. '
@@ -73,6 +86,7 @@ def enhancement_prompt(style, plan=None):
         'The opaque part, including the face position and eye/mouth interiors, must stay aligned. '
         + STYLE_BRIEFS[style] + ' '
         + style_mode +
+        'Style-specific rendering direction: ' + STYLE_RENDERING_RULES[style] + ' '
         'Inspect and work with any makeup already present: improve or modify it where appropriate '
         'instead of removing it and starting over. Use the same unified approach whether makeup '
         'is absent, partial or complete. ' + direction +

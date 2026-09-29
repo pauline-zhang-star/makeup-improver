@@ -258,11 +258,11 @@ def technique_mask(size, points, style, selected):
                 coords = xy[list(set(upper) | set(lower))]
                 x0, y0 = coords.min(axis=0)
                 x1, y1 = coords.max(axis=0)
-                dx = eye_span * (.14 if technique_id == 'eyeliner_05' else .08) * expansion
+                dx = eye_span * (.14 if technique_id in ('eyeliner_02', 'eyeliner_05') else .08) * expansion
                 dy = eye_span * (.025 if region == 'eyeliner' else .055) * expansion
                 draw.ellipse((x0-dx, y0-dy, x1+dx, y1+dy), fill=255)
                 draw.bitmap((0, 0), eye_protected, fill=0)
-            if technique_id == 'eyeliner_05':
+            if technique_id in ('eyeliner_02', 'eyeliner_05'):
                 across = (xy[263] - xy[33]) / max(eye_span, 1e-6)
                 upward = np.array([across[1], -across[0]])
                 for outer_index, direction in ((33, -1), (263, 1)):
@@ -271,6 +271,9 @@ def technique_mask(size, points, style, selected):
                     end = start + direction * across * eye_span * .11 + upward * eye_span * .035
                     draw.line((*start, *end), fill=255,
                               width=max(2, round(eye_span * .028)))
+                # The wing mask is drawn after the protected eye aperture;
+                # clear that protected support again so pigment stays on skin.
+                draw.bitmap((0, 0), eye_protected, fill=0)
         elif region == 'lips':
             shape = (lip_center_highlight_mask(size, points) if technique_id == 'lips_02'
                      else lip_mask(size, points, style))

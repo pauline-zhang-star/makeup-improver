@@ -39,29 +39,65 @@ STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
 # unsafe color edit eligible. Auto deliberately retains its existing ranking.
 STYLE_TECHNIQUE_PRIORITY = {
     MakeupStyle.AUTO: STYLE_BASELINE_PRIORITY,
-    MakeupStyle.NATURAL: ('eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02',
-                          'blush_01', 'nose_02', 'foundation_02'),
-    MakeupStyle.WORK: ('brow_06', 'eyeliner_05', 'eyeshadow_07', 'foundation_02',
-                       'lips_01', 'blush_01', 'nose_02'),
+    MakeupStyle.NATURAL: ('eyeshadow_07', 'brow_06', 'lips_04', 'lips_02',
+                          'eyeliner_05', 'blush_01', 'foundation_02', 'nose_02'),
+    MakeupStyle.WORK: ('brow_04', 'brow_06', 'eyeliner_05', 'eyeshadow_07',
+                       'foundation_01', 'foundation_02', 'lips_01', 'blush_01'),
     MakeupStyle.KOREAN_SOFT: ('eyeshadow_07', 'blush_01', 'lips_01', 'eyeliner_05',
                               'brow_06', 'foundation_02', 'nose_02'),
-    MakeupStyle.FRESH: ('blush_01', 'lips_01', 'eyeshadow_07', 'brow_06',
-                        'eyeliner_05', 'foundation_02', 'nose_02'),
+    MakeupStyle.FRESH: ('blush_01', 'lips_01', 'eyeshadow_07', 'eyeliner_05', 'brow_06',
+                        'foundation_02', 'nose_02'),
     MakeupStyle.DATE_NIGHT: ('eyeliner_02', 'eyeshadow_02', 'lips_01', 'brow_05',
                              'blush_01', 'nose_02', 'foundation_02'),
-    MakeupStyle.SOPHISTICATED: ('brow_05', 'eyeliner_05', 'eyeshadow_07', 'lips_03',
-                                'lips_01', 'nose_02', 'foundation_02'),
-    MakeupStyle.SOFT_GLAM: ('eyeshadow_02', 'eyeliner_05', 'blush_01', 'lips_01',
-                            'brow_06', 'nose_02', 'foundation_02'),
+    MakeupStyle.SOPHISTICATED: ('brow_05', 'brow_06', 'eyeliner_05', 'eyeshadow_07',
+                                'lips_03', 'lips_01', 'nose_02', 'foundation_02'),
+    MakeupStyle.SOFT_GLAM: ('eyeshadow_02', 'eyeshadow_07', 'eyeliner_05', 'blush_01',
+                            'lips_01', 'brow_06', 'nose_02', 'foundation_02'),
 }
 
-# Korean Soft favors a softly graduated tint. A slightly less pronounced
-# lip-to-skin contrast still qualifies when the image has confident lip
-# visibility and the model supplies a bounded, image-relative color delta.
+# Experimental, style-specific applicability thresholds. A style can broaden
+# a trigger only modestly; visibility, confidence, lighting and delta caps
+# remain mandatory. Thresholds are copied into the output plan for calibration.
 STYLE_TRIGGER_OVERRIDES = {
+    MakeupStyle.NATURAL: {
+        'lips_04': {'lip_chroma_dominance_score': {'above_threshold': .80}},
+    },
+    MakeupStyle.WORK: {
+        'foundation_01': {'under_eye_darkness_score': {'above_threshold': .40}},
+        'brow_04': {'brow_density_gap_score': {'above_threshold': .78}},
+    },
     MakeupStyle.KOREAN_SOFT: {
         'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .25}},
     },
+    MakeupStyle.FRESH: {
+        'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .27}},
+    },
+    MakeupStyle.DATE_NIGHT: {
+        'eyeliner_02': {
+            'eye_tilt_angle': {'below_threshold': -2.5},
+            'eye_aspect_ratio': {'below_threshold': .22},
+        },
+        'eyeshadow_02': {'crease_visibility': {'below_threshold': .40}},
+        'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .28}},
+    },
+    MakeupStyle.SOPHISTICATED: {
+        'brow_05': {'brow_tail_fade_score': {'above_threshold': .65}},
+        'lips_03': {'lip_undertone_hue_gap': {'above_threshold': 7.}},
+    },
+    MakeupStyle.SOFT_GLAM: {
+        'eyeshadow_02': {'crease_visibility': {'below_threshold': .40}},
+        'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .26}},
+    },
+}
+STYLE_PLACEMENT_INTENSITY_SCALE = {
+    MakeupStyle.AUTO: 1.0,
+    MakeupStyle.NATURAL: .82,
+    MakeupStyle.WORK: .90,
+    MakeupStyle.KOREAN_SOFT: 1.0,
+    MakeupStyle.FRESH: .95,
+    MakeupStyle.DATE_NIGHT: 1.08,
+    MakeupStyle.SOPHISTICATED: .92,
+    MakeupStyle.SOFT_GLAM: 1.08,
 }
 EXPERIMENTAL_THRESHOLDS = {
     'inter_eye_distance': {'above_threshold': .75, 'below_threshold': .55},
@@ -176,6 +212,10 @@ class TechniqueCatalog:
                 thresholds.setdefault(feature, {}).update(comparators)
         return thresholds
 
+    def trigger_overrides_for_style(self, style=MakeupStyle.AUTO):
+        style = MakeupStyle(style or MakeupStyle.AUTO)
+        return STYLE_TRIGGER_OVERRIDES.get(style, {})
+
     def _validate(self):
         if self.data.get('table_version') != '1.3':
             raise SpikeError('CONFIGURATION_ERROR', 'Unsupported technique table version.')
@@ -283,7 +323,7 @@ class TechniqueCatalog:
     def select(self, analysis, style=MakeupStyle.AUTO):
         style = MakeupStyle(style or MakeupStyle.AUTO)
         style_priorities = STYLE_TECHNIQUE_PRIORITY[style]
-        threshold_overrides = STYLE_TRIGGER_OVERRIDES.get(style, {})
+        threshold_overrides = self.trigger_overrides_for_style(style)
         analysis = TechniqueAnalysis.model_validate(analysis)
         brows = analysis.visibility.get('brows')
         if brows is not None and 'brow_visibility' not in analysis.measurements:
@@ -340,6 +380,10 @@ class TechniqueCatalog:
             strength = self._strength(proposal, entry, region)
             if strength is None:
                 continue
+            if entry['adjustment_type'] == 'placement':
+                cap = MAX_NOSE_INTENSITY if region == 'nose_contour' else MAX_PLACEMENT_INTENSITY
+                strength['intensity'] = min(
+                    cap, strength['intensity'] * STYLE_PLACEMENT_INTENSITY_SCALE[style])
             confidence = min([visible.detection_confidence] +
                              [item['detection_confidence'] for item in evidence])
             result = {'technique_id': proposal.technique_id, 'region': region,

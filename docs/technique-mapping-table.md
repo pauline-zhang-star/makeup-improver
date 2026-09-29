@@ -43,22 +43,24 @@ photo
 
 These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered only when needed toward five distinct planned regions, using the selected style's preference order. Auto retains the order below. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
 
-For Korean Soft, `lips_01` is preferred over the generic `lips_02` center highlight. Its lip-to-skin contrast trigger uses a Korean Soft threshold of `<0.25` (Auto remains `<0.20`), and still requires confidently visible lips, a model-proposed relative OKLCH delta within the global caps, and the lighting gate for any hue adjustment. The applied threshold is included in the plan evidence.
+Style-specific thresholds below are provisional experiments. The original measurement must have confidence >=0.85, the region must be visible, and all global lighting and color-delta rules continue to apply. Overrides are attached to the selected technique's evidence and saved in the run report.
 
 ### Style technique preference order
 
 These lists rank eligible techniques. A listed technique is not selected when its required evidence, regional visibility, confidence, lighting or color-delta checks fail. Placement entries explicitly marked `style_baseline` may be added by confident region visibility when needed toward five distinct planned regions.
 
-| style | preference order |
-|---|---|
-| Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` |
-| Natural | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` |
-| Work / Polished | `brow_06`, `eyeliner_05`, `eyeshadow_07`, `foundation_02`, `lips_01`, `blush_01`, `nose_02` |
-| Korean Soft | `eyeshadow_07`, `blush_01`, `lips_01`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` |
-| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `brow_06`, `eyeliner_05`, `foundation_02`, `nose_02` |
-| Date Night | `eyeliner_02`, `eyeshadow_02`, `lips_01`, `brow_05`, `blush_01`, `nose_02`, `foundation_02` |
-| Sophisticated | `brow_05`, `eyeliner_05`, `eyeshadow_07`, `lips_03`, `lips_01`, `nose_02`, `foundation_02` |
-| Soft Glam | `eyeshadow_02`, `eyeliner_05`, `blush_01`, `lips_01`, `brow_06`, `nose_02`, `foundation_02` |
+| style | preference order | style-specific trigger overrides | placement intensity |
+|---|---|---|---:|
+| Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` | None; default thresholds and confidence-first measured ranking | 1.00× |
+| Natural | `eyeshadow_07`, `brow_06`, `lips_04`, `lips_02`, `eyeliner_05`, `blush_01`, `foundation_02`, `nose_02` | `lips_04`: chroma dominance >0.80 | 0.82× |
+| Work / Polished | `brow_04`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `foundation_01`, `foundation_02`, `lips_01`, `blush_01` | `foundation_01`: under-eye darkness >0.40; `brow_04`: density-gap score >0.78 | 0.90× |
+| Korean Soft | `eyeshadow_07`, `blush_01`, `lips_01`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.25 (Auto <0.20) | 1.00× |
+| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.27 | 0.95× |
+| Date Night | `eyeliner_02`, `eyeshadow_02`, `lips_01`, `brow_05`, `blush_01`, `nose_02`, `foundation_02` | `eyeliner_02`: eye tilt <−2.5° or aspect ratio <0.22; `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.28 | 1.08× |
+| Sophisticated | `brow_05`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_03`, `lips_01`, `nose_02`, `foundation_02` | `brow_05`: tail-fade score >0.65; `lips_03`: undertone hue gap >7° | 0.92× |
+| Soft Glam | `eyeshadow_02`, `eyeshadow_07`, `eyeliner_05`, `blush_01`, `lips_01`, `brow_06`, `nose_02`, `foundation_02` | `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.26 | 1.08× |
+
+Placement intensity multipliers are applied after catalog limits and remain capped at 0.70 (0.35 for nose contour). They do not change color deltas. Korean Soft ranks `lips_01` before the generic `lips_02` center highlight and permits a softly graduated lip color when the measured contrast is below 0.25; the model must still propose a relative OKLCH delta within the global caps. Hue changes still require the lighting gate.
 
 | id | region | technique | instruction |
 |---|---|---|---|
@@ -103,7 +105,7 @@ Entries that change color rather than placement/depth are marked `[COLOR]` in th
 | id | trigger_condition | measured_feature | candidate_technique | instruction_template |
 |---|---|---|---|---|
 | eyeliner_01 | wide inter-eye distance | `inter_eye_distance` above threshold | inner_corner_emphasis | "Deepen the eyeliner slightly at the inner corner to visually narrow the distance between the eyes." |
-| eyeliner_02 | downturned or elongated eye shape | `eye_tilt_angle` / `eye_aspect_ratio` | outer_wing_lift | "Extend the eyeliner along the lower lash line slightly upward at the outer corner." |
+| eyeliner_02 | downturned or elongated eye shape | `eye_tilt_angle` / `eye_aspect_ratio` | outer_wing_lift | "Extend a fine tapered wing from the outer third of the upper lash line slightly upward and outward; leave visible skin between pigment and the eye opening." |
 | eyeliner_03 | hooded eyelid (crease covers lid) | `visible_lid_ratio` below threshold | thicken_lash_line | "Slightly thicken the eyeliner along the lash line so it remains visible when the eye is open." |
 | eyeliner_04 | narrow inter-eye distance | `inter_eye_distance` below threshold | outer_extend_inner_taper | "Extend the eyeliner outward toward the outer corner; keep the inner corner thin or bare." |
 

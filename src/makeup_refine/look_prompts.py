@@ -42,7 +42,14 @@ def enhancement_prompt(style, plan=None):
                      'the original lip hue, saturation, gloss level, outline and mouth corners. '
                      'Do not add unselected feature edits; optional facial base makeup is allowed as described below. '
                      'For a color entry, use only the supplied relative '
-                     'OKLCH delta, never a fixed product shade. ')
+                     'OKLCH delta, never a fixed product shade. '
+                     'Render these techniques as parts of one coordinated look, not as independent '
+                     'edits applied in isolation: keep pigment warmth/coolness, depth and finish '
+                     'harmonious across every selected area so the result reads as a single considered '
+                     'makeup look rather than a checklist of separate changes. This is a rendering and '
+                     'color-harmony instruction only — it must not be used to justify a larger edit area, '
+                     'a stronger effect than the stated intensity/color delta, or any change outside the '
+                     'selected techniques. ')
     return (
         'Edit the supplied original selfie into ONE finished, improved makeup photograph. '
         'Only alter cosmetic pigment, facial base-makeup finish and lash appearance inside the transparent mask. '

@@ -159,7 +159,8 @@ class LookPipeline:
                 if self.on_aligned:
                     self.on_aligned(enhanced)
                 deviation = validate_candidate_geometry(enhanced, original, points, self.landmarks)
-                proportions = validate_facial_proportions(enhanced, original, self.landmarks)
+                proportions = validate_facial_proportions(
+                    enhanced, original, self.landmarks, style=style)
                 preservation = validate_protected_pixels(original, enhanced, mask)
             except SpikeError as exc:
                 if exc.code not in {'QUALITY_CHECK_FAILED', 'NO_FACE', 'MULTIPLE_FACES'}:

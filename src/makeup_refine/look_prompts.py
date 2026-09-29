@@ -15,6 +15,21 @@ STYLE_BRIEFS = {
 
 
 def enhancement_prompt(style, plan=None):
+    style = MakeupStyle(style or MakeupStyle.AUTO)
+    if style == MakeupStyle.AUTO:
+        style_mode = (
+            'Auto mode is conservative: keep the selected cosmetic edits tight, softly blended and '
+            'understated within the current mask. Do not broaden the effect merely to make a style statement. '
+        )
+    else:
+        style_mode = (
+            'A named makeup style was selected. Use the wider permitted selected-technique mask and make '
+            'the chosen style visibly recognizable with moderately stronger pigment placement, coverage and '
+            'finish plus broader internal blending than Auto. This relaxation applies only to cosmetic '
+            'rendering inside selected technique areas; it does not permit face reshaping, identity changes, '
+            'a decrease in eye opening, coverage of the visible iris or eye white, or edits to hair, glasses, '
+            'lighting, clothes or background. '
+        )
     if plan is None:
         direction = ('Adjust only features that benefit the cohesive final look; '
                      'do not force a change in every area. Improve shape through makeup placement where useful: '
@@ -57,6 +72,7 @@ def enhancement_prompt(style, plan=None):
         'Only alter cosmetic pigment, facial base-makeup finish and lash appearance inside the transparent mask. '
         'The opaque part, including the face position and eye/mouth interiors, must stay aligned. '
         + STYLE_BRIEFS[style] + ' '
+        + style_mode +
         'Inspect and work with any makeup already present: improve or modify it where appropriate '
         'instead of removing it and starting over. Use the same unified approach whether makeup '
         'is absent, partial or complete. ' + direction +

@@ -83,17 +83,27 @@ def facial_proportion_metrics(image, detector):
 
 
 EYE_OPENING_RELATIVE_LIMIT = .06
+# A named look may use a more visible eyelid/liner treatment. This only
+# permits a small cosmetic increase in the measured aperture; the directional
+# rule below still forbids making either eye look smaller.
+STYLED_EYE_OPENING_RELATIVE_LIMIT = .08
 EYE_OPENING_MIN_RELATIVE_CHANGE = 0.0
 
 
-def validate_facial_proportions(candidate, original, detector, max_relative_change=.05):
+def validate_facial_proportions(candidate, original, detector, max_relative_change=.05,
+                                style=None):
     """Reject feature reshaping while allowing small cosmetic eye-opening effects.
 
     Eyeliner and double-eyelid makeup can change the measured eyelid opening a
-    little without moving the eye or changing facial anatomy. Eye opening may
-    stay the same or increase by up to 6%, but may never decrease. All other
-    facial proportions remain at the stricter 5% limit.
+    little without moving the eye or changing facial anatomy. Auto keeps the
+    aperture increase to 6%; a named style may use up to 8% for a more visible
+    cosmetic treatment, but may never decrease either eye. All other facial
+    proportions remain at the supplied (normally 5%) limit in both modes.
     """
+    style_value = getattr(style, 'value', style)
+    styled = style_value not in (None, 'Auto')
+    eye_opening_limit = (STYLED_EYE_OPENING_RELATIVE_LIMIT if styled
+                         else EYE_OPENING_RELATIVE_LIMIT)
     before = facial_proportion_metrics(original, detector)
     after = facial_proportion_metrics(candidate, detector)
     changes = {key: float((after[key] - before[key]) / max(abs(before[key]), 1e-6))
@@ -102,6 +112,8 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
                        'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
                     else max_relative_change)
               for key in changes}
+    for key in ('leftEyeOpeningRatio', 'rightEyeOpeningRatio'):
+        limits[key] = eye_opening_limit
     magnitude_violations = [key for key, change in changes.items()
                             if abs(change) > limits[key]]
     eye_opening_keys = {'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
@@ -120,6 +132,7 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
               'maxFacialProportionChange': abs(changes[reported]),
               'maxFacialProportionChangeAllowed': limits[reported],
               'facialProportionLimits': limits,
+              'facialProportionMode': 'styled' if styled else 'auto',
               'eyeOpeningDirection': 'non_decreasing',
               'eyeOpeningDecreaseViolations': eye_opening_decrease_violations}
     if violations:

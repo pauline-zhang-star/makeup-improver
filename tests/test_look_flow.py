@@ -118,6 +118,33 @@ def test_auto_brief_requests_cosmetic_shape_without_anatomical_edit():
     assert 'eye-to-nose distance' in prompt
     assert 'nose-to-mouth distance' in prompt
     assert 'Lock the hair silhouette' in prompt
+    assert 'Auto mode is conservative' in prompt
+    assert 'wider permitted selected-technique mask' not in prompt
+
+
+def test_named_style_relaxes_cosmetic_rendering_without_relaxing_safety_rules():
+    prompt = enhancement_prompt(MakeupStyle.KOREAN_SOFT)
+    assert 'wider permitted selected-technique mask' in prompt
+    assert 'moderately stronger pigment placement' in prompt
+    assert 'a decrease in eye opening' in prompt
+    assert 'visible iris or eye white' in prompt
+
+
+def test_named_style_allows_a_little_more_cosmetic_eye_opening(monkeypatch):
+    from makeup_refine import quality
+
+    before = {'leftEyeOpeningRatio': .20, 'rightEyeOpeningRatio': .20,
+              'noseWidthRatio': .50, 'mouthWidthRatio': .60}
+    after = {'leftEyeOpeningRatio': .214, 'rightEyeOpeningRatio': .20,
+             'noseWidthRatio': .50, 'mouthWidthRatio': .60}
+    values = iter((before, after))
+    monkeypatch.setattr(quality, 'facial_proportion_metrics',
+                        lambda image, detector: next(values))
+
+    report = quality.validate_facial_proportions(
+        object(), object(), object(), style=MakeupStyle.KOREAN_SOFT)
+    assert report['facialProportionMode'] == 'styled'
+    assert report['facialProportionLimits']['leftEyeOpeningRatio'] == .08
 
 
 def test_selected_style_does_not_open_full_face_mask_without_foundation(image):

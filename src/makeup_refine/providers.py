@@ -132,7 +132,8 @@ class OpenAIProvider:
             prompt += (' Previous attempt failed this check: ' + correction +
                        ' Start again from this ORIGINAL image and the same technique plan. '
                        'Keep the camera framing and face position fixed. Preserve exposure, flash highlights, '
-                       'eye size, eyelid opening, iris size, face proportions and mouth shape exactly; '
+                       'eye position and size, iris size, face proportions and mouth shape exactly. '
+                       'A small eyelid-opening change caused only by the selected eyeliner or eyelid makeup is allowed; '
                        'do not beautify, enlarge or reshape facial features. '
                        'Preserve the original hairline and hair silhouette, volume, width, part and flyaways exactly; '
                        'do not widen or regenerate the hair. '

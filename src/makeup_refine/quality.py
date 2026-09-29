@@ -82,22 +82,39 @@ def facial_proportion_metrics(image, detector):
     }
 
 
+EYE_OPENING_RELATIVE_LIMIT = .06
+
+
 def validate_facial_proportions(candidate, original, detector, max_relative_change=.05):
-    """Reject feature reshaping even when all landmarks move together."""
+    """Reject feature reshaping while allowing small cosmetic eye-opening effects.
+
+    Eyeliner and double-eyelid makeup can change the measured eyelid opening a
+    little without moving the eye or changing facial anatomy. Keep the general
+    proportion limit at 5%, but allow eye-opening ratios up to 6%; all other
+    facial proportions remain at the stricter limit.
+    """
     before = facial_proportion_metrics(original, detector)
     after = facial_proportion_metrics(candidate, detector)
     changes = {key: float((after[key] - before[key]) / max(abs(before[key]), 1e-6))
                for key in before}
-    largest = max(changes, key=lambda key: abs(changes[key]))
+    limits = {key: (EYE_OPENING_RELATIVE_LIMIT if key in {
+                       'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
+                    else max_relative_change)
+              for key in changes}
+    violations = [key for key, change in changes.items()
+                  if abs(change) > limits[key]]
+    reported = max(violations or changes,
+                   key=lambda key: abs(changes[key]) / max(limits[key], 1e-6))
     report = {'facialProportionsBefore': before, 'facialProportionsAfter': after,
               'facialProportionRelativeChanges': changes,
-              'maxFacialProportionChange': abs(changes[largest]),
-              'maxFacialProportionChangeAllowed': max_relative_change}
-    if report['maxFacialProportionChange'] > max_relative_change:
+              'maxFacialProportionChange': abs(changes[reported]),
+              'maxFacialProportionChangeAllowed': limits[reported],
+              'facialProportionLimits': limits}
+    if violations:
         raise SpikeError('QUALITY_CHECK_FAILED',
                          'The generated image changed facial feature proportions '
-                         f"({largest} changed {changes[largest]:+.1%}; "
-                         f"limit {max_relative_change:.1%}).", report)
+                         f"({reported} changed {changes[reported]:+.1%}; "
+                         f"limit {limits[reported]:.1%}).", report)
     return report
 
 

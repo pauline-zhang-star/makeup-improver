@@ -197,6 +197,7 @@ def test_enhancement_prompt_uses_preselected_technique(image):
     assert 'Eyeliner must not enter the eye opening' in prompt
     assert 'one coordinated look' in prompt
     assert 'must not be used to justify a larger edit area' in prompt
+    assert 'must never make either eye opening smaller' in prompt
 
 
 def test_identical_pair_skips_paid_comparison(image):
@@ -600,6 +601,21 @@ def test_facial_proportions_reject_eye_reshaping():
 
     with pytest.raises(SpikeError, match='facial feature proportions'):
         validate_facial_proportions(candidate, original, ProportionDetector())
+
+
+def test_facial_proportions_reject_eye_opening_decrease(monkeypatch):
+    from makeup_refine import quality
+
+    before = {'leftEyeOpeningRatio': .20, 'rightEyeOpeningRatio': .20,
+              'noseWidthRatio': .50, 'mouthWidthRatio': .60}
+    after = {'leftEyeOpeningRatio': .20, 'rightEyeOpeningRatio': .198,
+             'noseWidthRatio': .50, 'mouthWidthRatio': .60}
+    values = iter((before, after))
+    monkeypatch.setattr(quality, 'facial_proportion_metrics',
+                        lambda image, detector: next(values))
+
+    with pytest.raises(SpikeError, match='eye opening must not decrease'):
+        quality.validate_facial_proportions(object(), object(), object())
 
 
 def test_edge_safe_composite_restores_protected_pixels_without_a_hard_seam():

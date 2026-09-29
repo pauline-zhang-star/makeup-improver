@@ -83,15 +83,16 @@ def facial_proportion_metrics(image, detector):
 
 
 EYE_OPENING_RELATIVE_LIMIT = .06
+EYE_OPENING_MIN_RELATIVE_CHANGE = 0.0
 
 
 def validate_facial_proportions(candidate, original, detector, max_relative_change=.05):
     """Reject feature reshaping while allowing small cosmetic eye-opening effects.
 
     Eyeliner and double-eyelid makeup can change the measured eyelid opening a
-    little without moving the eye or changing facial anatomy. Keep the general
-    proportion limit at 5%, but allow eye-opening ratios up to 6%; all other
-    facial proportions remain at the stricter limit.
+    little without moving the eye or changing facial anatomy. Eye opening may
+    stay the same or increase by up to 6%, but may never decrease. All other
+    facial proportions remain at the stricter 5% limit.
     """
     before = facial_proportion_metrics(original, detector)
     after = facial_proportion_metrics(candidate, detector)
@@ -101,20 +102,36 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
                        'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
                     else max_relative_change)
               for key in changes}
-    violations = [key for key, change in changes.items()
-                  if abs(change) > limits[key]]
+    magnitude_violations = [key for key, change in changes.items()
+                            if abs(change) > limits[key]]
+    eye_opening_keys = {'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
+    # Cosmetic eyeliner or eyelid makeup may leave the aperture unchanged or
+    # make it look slightly more open, but it must never make either eye look
+    # more closed. This directional rule is separate from the magnitude cap.
+    eye_opening_decrease_violations = [
+        key for key in eye_opening_keys
+        if changes[key] < EYE_OPENING_MIN_RELATIVE_CHANGE
+    ]
+    violations = sorted(set(magnitude_violations + eye_opening_decrease_violations))
     reported = max(violations or changes,
                    key=lambda key: abs(changes[key]) / max(limits[key], 1e-6))
     report = {'facialProportionsBefore': before, 'facialProportionsAfter': after,
               'facialProportionRelativeChanges': changes,
               'maxFacialProportionChange': abs(changes[reported]),
               'maxFacialProportionChangeAllowed': limits[reported],
-              'facialProportionLimits': limits}
+              'facialProportionLimits': limits,
+              'eyeOpeningDirection': 'non_decreasing',
+              'eyeOpeningDecreaseViolations': eye_opening_decrease_violations}
     if violations:
-        raise SpikeError('QUALITY_CHECK_FAILED',
-                         'The generated image changed facial feature proportions '
-                         f"({reported} changed {changes[reported]:+.1%}; "
-                         f"limit {limits[reported]:.1%}).", report)
+        if reported in eye_opening_decrease_violations:
+            message = ('The generated image reduced eye opening '
+                       f"({reported} changed {changes[reported]:+.1%}; "
+                       'eye opening must not decrease).')
+        else:
+            message = ('The generated image changed facial feature proportions '
+                       f"({reported} changed {changes[reported]:+.1%}; "
+                       f"limit {limits[reported]:.1%}).")
+        raise SpikeError('QUALITY_CHECK_FAILED', message, report)
     return report
 
 

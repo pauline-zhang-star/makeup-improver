@@ -27,7 +27,9 @@ PROVISIONAL_TECHNIQUE_INTENSITY = {'lips_02': .7, 'eyeliner_05': .7}
 # conservative fallbacks when one of those regions is occluded or not usable;
 # they keep the plan useful without inventing a facial defect.
 STYLE_BASELINE_PRIORITY = (
-    'eyeliner_05', 'blush_01', 'eyeshadow_07', 'brow_06', 'lips_02'
+    # Keep the core eye/brow/lip areas ahead of optional blush. The minimum
+    # plan must remain useful even when the person already wears strong makeup.
+    'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02', 'blush_01'
 )
 STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
 EXPERIMENTAL_THRESHOLDS = {

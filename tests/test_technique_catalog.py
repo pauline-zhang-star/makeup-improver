@@ -5,7 +5,8 @@ from pydantic import ValidationError
 
 from makeup_refine.look_models import MakeupStyle
 from makeup_refine.look_mask import technique_mask
-from makeup_refine.technique_measurements import override_landmark_values
+from makeup_refine.technique_measurements import (override_landmark_values,
+                                                  promote_geometry_visible_regions)
 from makeup_refine.look_prompts import enhancement_prompt
 from makeup_refine.technique_catalog import (
     MAX_SELECTED_TECHNIQUES, TechniqueCatalog, TechniquePlan,
@@ -146,7 +147,7 @@ def test_measured_placement_can_be_selected_when_model_omits_proposals():
     complete = catalog.complete_placement_proposals(raw)
     selected = catalog.select(complete).selected
     assert [item['technique_id'] for item in selected] == [
-        'lips_02', 'eyeliner_05', 'blush_01', 'eyeshadow_07']
+        'lips_02', 'eyeliner_05', 'eyeshadow_07', 'brow_06']
     assert len({item['region'] for item in selected}) == 4
     assert selected[0]['intensity'] == .7
     assert all(item.technique_id != 'lips_01' for item in complete.proposals)
@@ -167,11 +168,23 @@ def test_missing_local_geometry_is_added_only_for_confidently_visible_region():
     assert low.measurements['lower_lip_fullness_estimate'].detection_confidence == .4
 
 
+def test_visible_mouth_is_not_dropped_when_model_confuses_no_lipstick_with_occlusion():
+    points = [(0.5, 0.5)] * 478
+    points[33], points[133] = (.3, .4), (.4, .4)
+    points[362], points[263] = (.6, .4), (.7, .4)
+    points[17], points[14] = (.5, .62), (.5, .60)
+    raw = analysis([], measurements={'lip_chroma_dominance_score': measure(.4)})
+    raw['visibility']['lips'] = measure(False, .98)
+    promoted = promote_geometry_visible_regions(raw, points)
+    assert promoted.visibility['lips'].value is True
+    assert promoted.visibility['lips'].detection_confidence == .9
+
+
 def test_style_baselines_fill_three_distinct_visible_regions_without_claiming_defects():
     catalog = TechniqueCatalog()
     plan = catalog.select(catalog.complete_placement_proposals(analysis([])))
     assert [item['technique_id'] for item in plan.selected] == [
-        'eyeliner_05', 'blush_01', 'eyeshadow_07', 'brow_06']
+        'eyeliner_05', 'eyeshadow_07', 'brow_06', 'lips_02']
     assert all(item['selection_basis'] == 'style_baseline' for item in plan.selected)
     assert all(item['evidence'][0]['feature'] == 'anatomical_region_visible'
                for item in plan.selected)

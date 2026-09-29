@@ -57,3 +57,31 @@ def override_landmark_values(analysis, points):
                 parsed.measurements[name] = Measurement(value=value,
                                                          detection_confidence=min(confidence, .9))
     return parsed
+
+
+def promote_geometry_visible_regions(analysis, points):
+    """Mark stable, anatomically visible makeup regions as available.
+
+    Region visibility answers whether a feature can be edited, not whether it
+    already needs makeup. Vision models sometimes return ``lips=false`` when
+    they mean "no obvious lipstick". That incorrectly removes lips from the
+    plan, even though the face landmarks clearly locate the mouth. Use the
+    detector geometry as a local availability check so baseline planning can
+    still include the lips. This does not claim that the lips need a change;
+    it only keeps the region eligible for a selected, visible technique.
+    """
+    from .technique_catalog import TechniqueAnalysis, Measurement
+
+    parsed = TechniqueAnalysis.model_validate(analysis)
+    geometry = landmark_measurements(points)
+    fullness = geometry.get('lower_lip_fullness_estimate')
+    lip_measurement_evidence = any(name in parsed.measurements for name in (
+        'lower_lip_fullness_estimate', 'lip_skin_contrast_ratio',
+        'lip_undertone_hue_gap', 'lip_chroma_dominance_score'))
+    if (fullness is not None and np.isfinite(fullness) and fullness > .015
+            and lip_measurement_evidence):
+        current = parsed.visibility.get('lips')
+        confidence = min(max(current.detection_confidence if current else .9, .85), .9)
+        parsed.visibility['lips'] = Measurement(value=True,
+                                                 detection_confidence=confidence)
+    return parsed

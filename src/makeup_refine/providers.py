@@ -11,7 +11,8 @@ from .art_direction import PLANNING_DIRECTION, RENDERING_DIRECTION
 from .look_models import MakeupStyle, LookComparison
 from .look_prompts import enhancement_prompt, comparison_prompt, STYLE_BRIEFS
 from .technique_catalog import TechniqueCatalog, TechniqueAnalysis
-from .technique_measurements import override_landmark_values
+from .technique_measurements import (override_landmark_values,
+                                     promote_geometry_visible_regions)
 
 
 TECHNIQUES = {
@@ -64,6 +65,8 @@ class OpenAIProvider:
             'eyeliner, eyeshadow, brows, lips, blush, nose_contour, foundation. These keys name ANATOMICAL REGIONS; '
             'do not put measured feature names in visibility. For eyeliner and eyeshadow, true means the '
             'eyelids and corners can be seen, even if no eye makeup is present. Report existing makeup '
+            'separately from anatomy: a visible mouth/lip region MUST be lips=true even when it has no lipstick '
+            'or already has makeup; use lips=false only when the mouth is genuinely occluded or cannot be located. '
             'separately in measurements such as eyeshadow_detected. A missing, occluded, or uncertain anatomical region '
             'must have visibility=false and should yield no proposal. Never infer skin tone or ethnicity categories. '
             'Use continuous measurements and relative color changes; no fixed target shades. '
@@ -99,6 +102,9 @@ class OpenAIProvider:
             if not required_regions.issubset(raw.visibility):
                 raise ValueError('Vision analysis omitted required anatomical visibility regions.')
             measured = override_landmark_values(raw, points)
+            # A visible mouth is an available edit region even when the model
+            # confuses "no obvious lipstick" with anatomical occlusion.
+            measured = promote_geometry_visible_regions(measured, points)
             complete = catalog.complete_placement_proposals(measured)
             self.last_technique_analysis = {**complete.model_dump(),
                                             'model_proposals': [proposal.model_dump()

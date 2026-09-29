@@ -119,10 +119,12 @@ def test_auto_brief_requests_cosmetic_shape_without_anatomical_edit():
     assert 'Lock the hair silhouette' in prompt
 
 
-def test_selected_style_uses_wider_mask_than_auto(image):
+def test_selected_style_does_not_open_full_face_mask_without_foundation(image):
     _, auto = LookPipeline(Provider(), Provider(), Detector()).run(image, MakeupStyle.AUTO)
     _, selected = LookPipeline(Provider(), Provider(), Detector()).run(image, MakeupStyle.SOFT_GLAM)
-    assert selected['maskCoverageFraction'] > auto['maskCoverageFraction']
+    assert auto['maskCoverageFraction'] < .1
+    assert selected['maskCoverageFraction'] < .1
+    assert not selected['complexionMaskEnabled']
     assert auto['generationMode'] == selected['generationMode'] == 'direct_api_result'
 
 
@@ -239,7 +241,7 @@ def test_facial_base_allowed_while_background_stays_protected():
     mask = direct_edit_mask(original.size, points, MakeupStyle.AUTO, plan.selected,
                             include_complexion=True)
     base_only = (np.asarray(mask) > 0) & (selected == 0)
-    assert base_only.sum() > 50000
+    assert base_only.sum() == 0
     pixels = np.asarray(original).copy()
     pixels[base_only] = (130, 120, 110)
     edited = Image.fromarray(pixels)

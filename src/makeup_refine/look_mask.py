@@ -42,19 +42,17 @@ def _style_expansion(style):
 
 
 def direct_edit_mask(size, points, style, selected, include_complexion=True):
-    """Selected techniques plus optional facial base makeup, without compositing.
+    """Exactly the selected techniques' masks, without full-face compositing.
+
+    Full-face complexion editing is intentionally not added here. Foundation
+    techniques already carry their own small, landmark-anchored masks inside
+    ``technique_mask``. ``include_complexion`` remains accepted for call-site
+    compatibility during migration, but is intentionally unused.
 
     This landmark approximation is not semantic skin segmentation. Glasses and
     hair crossing the face still need the paired-image preservation assessment.
-    Keep brow pigment protected unless a selected technique allows editing it.
     """
-    base = complexion_mask(size, points) if include_complexion else Image.new('L', size, 0)
-    xy = np.asarray(points, dtype=float) * size
-    draw = ImageDraw.Draw(base)
-    for brow in BROWS:
-        draw.polygon([tuple(xy[i]) for i in brow], fill=0)
-    selected_mask = technique_mask(size, points, style, selected)
-    return Image.fromarray(np.maximum(np.asarray(base), np.asarray(selected_mask)))
+    return technique_mask(size, points, style, selected)
 
 
 def lip_mask(size, points, style=MakeupStyle.AUTO):

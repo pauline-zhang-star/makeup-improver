@@ -121,10 +121,8 @@ class LookPipeline:
                               'comparisonStatus': 'skipped_no_selected_techniques',
                               **summarize_observed_changes([], []),
                               'imageEditCalls': 0, 'humanReviewRequired': True}
-        complexion_enabled = (style != MakeupStyle.AUTO or
-                              any(item['region'] == 'foundation' for item in plan.selected))
-        mask = direct_edit_mask(original.size, points, style, plan.selected,
-                                include_complexion=complexion_enabled)
+        complexion_enabled = any(item['region'] == 'foundation' for item in plan.selected)
+        mask = direct_edit_mask(original.size, points, style, plan.selected)
         attempts, correction = [], None
         for attempt in range(1, self.max_edit_attempts + 1):
             arguments = {'correction': correction} if correction else {}

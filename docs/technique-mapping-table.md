@@ -1,4 +1,4 @@
-# Technique Mapping Table (v1.3 — adds style polish toward five visible areas)
+# Technique Mapping Table (v1.4 — style-specific cheek and brow rendering)
 
 **Companion file:** [`src/makeup_refine/technique_mapping_table.json`](../src/makeup_refine/technique_mapping_table.json) mirrors every entry in this document in machine-readable form (ids, trigger conditions, instruction templates, caps). Load that file directly rather than transcribing the markdown tables below by hand — hand-transcription is a likely source of copy errors. This markdown file is the source of truth for *content and reasoning*; the JSON file is the source of truth for *exact field values* and should be regenerated from this document if the two ever disagree.
 
@@ -13,7 +13,7 @@ photo
 → detection (facial landmarks + color analysis)
 → measured features (e.g. eye_aspect_ratio, inter_eye_distance, lip_skin_contrast)
 → match measured triggers and assess which anatomical regions are visible
-→ local rules rank matching techniques using the selected style, then add eligible visible style-polish techniques toward 5 planned regions
+→ local rules rank matching techniques using the selected style, then add eligible visible style-polish techniques toward 4 planned regions
 → keep at most 7 techniques in total
 → AI must cite which measured feature + threshold justified each suggestion (traceability requirement)
 → localized edit call executes the instruction
@@ -35,39 +35,48 @@ photo
 1. Evaluate every region's trigger conditions independently and collect all matches.
 2. Apply each region's own mutual-exclusivity rules first (e.g. `lips_01` vs `lips_04`) to narrow matches within a region.
 3. If more than 7 matches remain, Auto ranks by `detection_confidence` (highest first). A named style ranks its listed suitable techniques first, then other measured matches by confidence; every candidate must still pass its applicable measurement, visibility, confidence and lighting gates.
-4. If measured matches cover fewer than 5 distinct regions, add eligible style-polish techniques in confidently visible regions, ordered for the selected style, toward 5 planned regions. This leaves room for an edit that fails to appear while aiming for 5 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
+4. If measured matches cover fewer than 4 distinct regions, add eligible style-polish techniques in confidently visible regions, ordered for the selected style, toward 4 planned regions. This leaves room for an edit that fails to appear while aiming for 4 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
 
-**Product-owner revision:** aim for at least five *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for five distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
+**Product-owner revision:** aim for at least four *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for four distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
 
-### v1.3 style-polish entries
+### v1.4 style-polish entries
 
-These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered only when needed toward five distinct planned regions, using the selected style's preference order. Auto retains the order below. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
+These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered only when needed toward four distinct planned regions, using the selected style's preference order. Auto retains the existing order. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
 
-Style-specific thresholds below are provisional experiments. The original measurement must have confidence >=0.85, the region must be visible, and all global lighting and color-delta rules continue to apply. Overrides are attached to the selected technique's evidence and saved in the run report.
+Style-specific thresholds below are provisional experiments. The original measurement must have confidence >=0.85, the region must be visible, and all global lighting and color-delta rules continue to apply. Overrides are attached to the selected technique's evidence and saved in the run report. For Natural, Korean Soft, Fresh, Date Night, Sophisticated, and Soft Glam, when visible lips meet that style's `lips_01` contrast trigger but the analysis model omits the color proposal, the local selector supplies a capped relative OKLCH proposal (`ΔL=+0.01`, `ΔC=+0.025`, `Δh=0°`). This is a prototype default, not a calibrated shade recommendation. These styles reserve defining candidates ahead of generic fillers when safe candidates are available; no region is forced when visibility, confidence, or the required measured trigger is missing.
 
 ### Style technique preference order
 
-These lists rank eligible techniques. A listed technique is not selected when its required evidence, regional visibility, confidence, lighting or color-delta checks fail. Placement entries explicitly marked `style_baseline` may be added by confident region visibility when needed toward five distinct planned regions.
+These lists rank eligible techniques. A listed technique is not selected when its required evidence, regional visibility, confidence, lighting or color-delta checks fail. Placement entries explicitly marked `style_baseline` may be added by confident region visibility when needed toward four distinct planned regions. `style_baseline_styles` limits that behavior to the named style.
 
-| style | preference order | style-specific trigger overrides | placement intensity |
-|---|---|---|---:|
-| Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` | None; default thresholds and confidence-first measured ranking | 1.00× |
-| Natural | `eyeshadow_07`, `brow_06`, `lips_04`, `lips_02`, `eyeliner_05`, `blush_01`, `foundation_02`, `nose_02` | `lips_04`: chroma dominance >0.80 | 0.82× |
-| Work / Polished | `brow_04`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `foundation_01`, `foundation_02`, `lips_01`, `blush_01` | `foundation_01`: under-eye darkness >0.40; `brow_04`: density-gap score >0.78 | 0.90× |
-| Korean Soft | `eyeshadow_07`, `blush_01`, `lips_01`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.25 (Auto <0.20) | 1.00× |
-| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.27 | 0.95× |
-| Date Night | `eyeliner_02`, `eyeshadow_02`, `lips_01`, `brow_05`, `blush_01`, `nose_02`, `foundation_02` | `eyeliner_02`: eye tilt <−2.5° or aspect ratio <0.22; `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.28 | 1.08× |
-| Sophisticated | `brow_05`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_03`, `lips_01`, `nose_02`, `foundation_02` | `brow_05`: tail-fade score >0.65; `lips_03`: undertone hue gap >7° | 0.92× |
-| Soft Glam | `eyeshadow_02`, `eyeshadow_07`, `eyeliner_05`, `blush_01`, `lips_01`, `brow_06`, `nose_02`, `foundation_02` | `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.26 | 1.08× |
+| style | preference order | style-specific trigger overrides |
+|---|---|---|
+| Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` | None; default thresholds and confidence-first measured ranking |
+| Natural | `eyeshadow_07`, `brow_06`, `lips_01`, `lips_04`, `lips_02`, `eyeliner_05`, `blush_01`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.24; `lips_04`: chroma dominance >0.80 |
+| Work / Polished | `brow_04`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `foundation_01`, `foundation_02`, `lips_01`, `blush_01` | `foundation_01`: under-eye darkness >0.40; `brow_04`: density-gap score >0.78 |
+| Korean Soft | `eyeshadow_07`, `blush_01`, `lips_01`, `eyeliner_05`, `brow_08`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.25 (Auto <0.20) |
+| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.27 |
+| Date Night | `eyeliner_02`, `eyeshadow_02`, `eyeliner_05`, `eyeshadow_07`, `lips_01`, `brow_05`, `blush_01`, `nose_02`, `foundation_02` | `eyeliner_02`: eye tilt <−2.5° or aspect ratio <0.22; `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.28 |
+| Sophisticated | `brow_05`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_03`, `lips_01`, `nose_02`, `foundation_02` | `brow_05`: tail-fade score >0.65; `lips_03`: undertone hue gap >7°; `lips_01`: lip-skin contrast <0.25 |
+| Soft Glam | `eyeshadow_02`, `eyeshadow_07`, `eyeliner_05`, `blush_01`, `lips_01`, `brow_06`, `nose_02`, `foundation_02` | `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.26 |
 
-Placement intensity multipliers are applied after catalog limits and remain capped at 0.70 (0.35 for nose contour). They do not change color deltas. Korean Soft ranks `lips_01` before the generic `lips_02` center highlight and permits a softly graduated lip color when the measured contrast is below 0.25; the model must still propose a relative OKLCH delta within the global caps. Hue changes still require the lighting gate.
+The intensity multipliers from v1.3 were removed. Their per-style percentages were not grounded in professional artistry references or image-set calibration; the named-style mask allowance remains the mechanism for broader placement. Trigger thresholds are still provisional engineering experiments, not professional standards or universal beauty measurements.
+
+### Art-direction review against professional references
+
+These style names are useful consumer choices, not standardized technical categories. The qualitative direction is now differentiated as follows: **Natural** uses sheer skin-like finishes and soft, low-contrast definition; **Work / Polished** uses tidy neutral definition and restrained cheek/lip color; **Korean Soft** uses diffused eyes, soft natural brows, apple blush closer to the nose, and center-to-edge gradient lips; **Fresh** uses a light apple flush and lively but balanced lips; **Date Night** allows more outer-eye and lash definition with coordinated lips; **Sophisticated** favors controlled contrast and precise tapered placement; **Soft Glam** builds luminous, blended dimension in layers. The mask changes the cheek target using facial landmarks; it does not yet classify face shape, so these are style cues, not rigid rules for every person.
+
+For Natural, Fresh, Date Night, Sophisticated, and Soft Glam, the selector reserves the style's signature candidates before generic eligible fillers: Natural favors a restrained lip tint; Fresh favors blush and lips; Date Night favors eyeliner, eyeshadow, and lips; Sophisticated favors brows, eyeliner, and lips; Soft Glam favors eyeshadow, eyeliner, lips, and blush. Reservation only reorders already eligible techniques or visible-only placement baselines. Lip color still requires its style-specific measured contrast trigger, so missing or unsuitable evidence does not create a lip edit.
+
+This review follows professional-artistry guidance that everyday makeup should enhance rather than transform, workplace makeup should keep attention on the person, Korean-inspired looks often use near-center apple blush and feathered gradient lips, blush location changes the visual effect, and soft glam depends on diffused blending rather than hard shapes ([M·A·C artistry direction](https://www.maccosmetics.com/blogs/mac-trend/no-makeup-makeup), [Bobbi Brown interview makeup](https://www.bobbibrowncosmetics.com/how-to-polished-interview-makeup), [Allure interview with Korean makeup artist Ko Won Hye](https://www.allure.com/story/how-to-do-chok-chok-korean-beauty-no-makeup-makeup), [Allure on professional blush placement](https://www.allure.com/story/how-to-apply-blush-techniques-used-by-makeup-artists), [Allure soft-glam guide](https://www.allure.com/story/soft-glam-makeup-guide-steps)). Rae Morris describes *Makeup Masterclass* as a 431-page instructional reference used by makeup schools, and her masterclass material highlights adapting technique to different eye shapes and bone structures ([book](https://raemorris.com/products/makeup-masterclass), [professional training](https://raemorris.com/products/sydney-masterclass-28-april-2026), [Rae Morris biography](https://raemorris.com/pages/about-rae-morris)). These sources support broad application principles; they do not supply the numerical thresholds or multipliers in this prototype.
 
 | id | region | technique | instruction |
 |---|---|---|---|
 | `eyeliner_05` | eyeliner | soft_outer_lash_definition | Trace a fine tapered line along the outer third of the upper lash line and lift its tip slightly; keep the inner corner soft. |
-| `blush_01` | blush | high_outward_cheek_blend | Sweep a soft blush high on the outer cheeks and blend it toward the temples, coordinated with existing lip color. |
+| `blush_01` | blush | style_aware_cheek_blend | Apple placement for Natural, Korean Soft and Fresh; more outward placement for other named styles, always softly blended and face-aware. |
 | `eyeshadow_07` | eyeshadow | soft_outer_lid_blend | Blend a soft midtone over the outer third of the upper lid, fading gently upward while leaving the inner lid light. |
 | `brow_06` | brows | define_lower_edge | Slightly sharpen the lower edge of the existing brow without moving its edge. |
+| `brow_08` | brows | soft_hairlike_brow_definition | Korean Soft only: add soft hairlike strokes inside the existing brow without carving its lower edge or imposing a shape. |
 | `lips_02` | lips | center_highlight | Add a very thin highlight to the center of the lower lip to suggest fullness, without altering lip outline. |
 | `nose_02` | nose_contour | bridge_highlight | Apply a thin highlight down the center of the nose bridge to add dimension. |
 | `foundation_02` | foundation | highlight_points | Add a small amount of highlight at the top of the cheekbone and down the nose bridge center. |

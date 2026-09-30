@@ -21,7 +21,19 @@ def save_review(directory, original, enhanced, report):
     temporary = directory / 'result.json.tmp'
     temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
     temporary.replace(directory / 'result.json')
-    write_report(directory / 'review.html', original, masks={}, result=enhanced,
+    comparison = enhanced
+    if comparison is None:
+        # A rejected API candidate is still useful in a test review. Prefer the
+        # aligned/composited candidate that went through geometry checks, while
+        # keeping enhancedImage unset so it cannot be mistaken for an accepted result.
+        diagnostic_path = payload.get('alignedCandidateImage') or payload.get('candidateImage')
+        if diagnostic_path:
+            try:
+                with Image.open(directory / diagnostic_path) as image:
+                    comparison = to_srgb(image)
+            except (OSError, ValueError):
+                comparison = None
+    write_report(directory / 'review.html', original, masks={}, result=comparison,
                  look_result=payload)
 
 

@@ -80,9 +80,9 @@ class OpenAIProvider:
             'overall-beauty judgment that discards a measured match. Local code checks the evidence, '
             'resolves conflicts, and keeps at most seven. For color techniques, propose only when you '
             'can justify a relative delta and its direction from reliable color evidence. '
-            'The application may add the table-listed style_baseline placement techniques toward five distinct '
+            'The application may add the table-listed style_baseline placement techniques toward four distinct '
             'visible regions are covered. If a baseline region is occluded, skip it and use another confidently '
-            'visible catalogued region; never invent a measurement to fill the five-region target. '
+            'visible catalogued region; never invent a measurement to fill the four-region target. '
             'A style baseline needs visibility, not a defect score; it does not claim the person has a flaw. '
             'Never invent a measurement to fill a quota. '
             'Use the selected style to prioritize catalog techniques that create that look. '
@@ -112,7 +112,7 @@ class OpenAIProvider:
             # A visible mouth is an available edit region even when the model
             # confuses "no obvious lipstick" with anatomical occlusion.
             measured = promote_geometry_visible_regions(measured, points)
-            complete = catalog.complete_placement_proposals(measured)
+            complete = catalog.complete_placement_proposals(measured, style=style)
             self.last_technique_analysis = {**complete.model_dump(),
                                             'model_proposals': [proposal.model_dump()
                                                                 for proposal in raw.proposals]}

@@ -49,6 +49,19 @@ def _style_expansion(style):
     return 1.0 if MakeupStyle(style or MakeupStyle.AUTO) == MakeupStyle.AUTO else 1.25
 
 
+def _cheek_centers(xy, eye_span, style):
+    """Landmark-anchored blush centers that reflect broad style conventions."""
+    style = MakeupStyle(style or MakeupStyle.AUTO)
+    eye_y = (xy[33, 1] + xy[263, 1]) / 2
+    cheek_y = eye_y + .42 * (xy[0, 1] - eye_y)
+    apple_styles = {MakeupStyle.NATURAL, MakeupStyle.KOREAN_SOFT, MakeupStyle.FRESH}
+    face_center_x = (xy[33, 0] + xy[263, 0]) / 2
+    for index in (33, 263):
+        inward = (1 if face_center_x > xy[index, 0] else -1)
+        shift = .12 if style in apple_styles else -.04
+        yield xy[index, 0] + inward * eye_span * shift, cheek_y
+
+
 def direct_edit_mask(size, points, style, selected):
     """Exactly the selected techniques' masks, without full-face compositing.
 
@@ -180,13 +193,9 @@ def makeup_mask(size, points, style=MakeupStyle.AUTO):
     # Cheek color is localized instead of allowing a global complexion rewrite.
     cheek_radius_x = eye_span * .14 * expansion
     cheek_radius_y = eye_span * .11 * expansion
-    eye_y = (xy[33, 1] + xy[263, 1]) / 2
-    mouth_y = xy[0, 1]
-    cheek_y = eye_y + .42 * (mouth_y - eye_y)
     cheeks = Image.new('L', size, 0)
     cheek_draw = ImageDraw.Draw(cheeks)
-    for eye_index in (33, 263):
-        cheek_x = xy[eye_index, 0] + (-.04 * eye_span if eye_index == 33 else .04 * eye_span)
+    for cheek_x, cheek_y in _cheek_centers(xy, eye_span, style):
         cheek_draw.ellipse((cheek_x-cheek_radius_x, cheek_y-cheek_radius_y,
                             cheek_x+cheek_radius_x, cheek_y+cheek_radius_y), fill=255)
 
@@ -218,7 +227,10 @@ def technique_mask(size, points, style, selected):
     selected_regions = {item['region'] for item in selected}
     eye_protected = Image.new('L', size, 0)
     eye_protected_draw = ImageDraw.Draw(eye_protected)
-    aperture_clearance = max(1, round(eye_span * .015))
+    # Keep model edits farther from the visible opening so pigment above the
+    # lash line cannot confuse the eye contour or make the eye read smaller.
+    # This matches the requested separation between liner and the eye itself.
+    aperture_clearance = max(1, round(eye_span * .03))
     for upper, lower in zip(UPPER_EYES, LOWER_EYES):
         aperture = Image.new('L', size, 0)
         ImageDraw.Draw(aperture).polygon(
@@ -278,10 +290,7 @@ def technique_mask(size, points, style, selected):
             shape = (lip_center_highlight_mask(size, points) if technique_id == 'lips_02'
                      else lip_mask(size, points, style))
         elif region == 'blush':
-            eye_y = (xy[33, 1] + xy[263, 1]) / 2
-            cheek_y = eye_y + .42 * (xy[0, 1] - eye_y)
-            for index in (33, 263):
-                x = xy[index, 0] + (-.04 * eye_span if index == 33 else .04 * eye_span)
+            for x, cheek_y in _cheek_centers(xy, eye_span, style):
                 draw.ellipse((x-eye_span*.18, cheek_y-eye_span*.10,
                               x+eye_span*.18, cheek_y+eye_span*.10), fill=255)
         elif region == 'nose_contour':

@@ -15,13 +15,13 @@ STYLE_BRIEFS = {
 
 STYLE_RENDERING_RULES = {
     MakeupStyle.AUTO: 'Keep contrast low and edits understated, with no prescribed style signature.',
-    MakeupStyle.NATURAL: 'Use sheer, skin-like finishes, soft edges, low contrast and restrained lip saturation.',
-    MakeupStyle.WORK: 'Use tidy, balanced definition, controlled shine and softly neutral color with no dramatic wing.',
-    MakeupStyle.KOREAN_SOFT: 'Use softly diffused upper-lid color, lifted fresh blush and a softly graduated lip tint with a clearer center and feathered edges.',
-    MakeupStyle.FRESH: 'Use fresh cheek color and lively but balanced lips, keeping eye definition light and skin texture visible.',
-    MakeupStyle.DATE_NIGHT: 'Use more defined outer eyes and coordinated lip color, with deeper contrast kept blended and contained.',
-    MakeupStyle.SOPHISTICATED: 'Use precise tapered edges, controlled color contrast and coordinated satin-like finishes without added shine everywhere.',
-    MakeupStyle.SOFT_GLAM: 'Use more visible outer-eye depth, defined lashes and blended cheek/lip color while keeping transitions smooth.',
+    MakeupStyle.NATURAL: 'Use sheer, skin-like finishes and soft neutral definition. Keep brows close to their natural shape, place any cheek flush on the apples, and make selected lip tint softly perceptible but restrained. Avoid crisp edges and visible contour.',
+    MakeupStyle.WORK: 'Use tidy, balanced definition for a composed daytime look: softly groomed brows, neutral lid color, fine upper-lash definition, a restrained skin-like finish in selected complexion areas, and a light cheek tint kept mostly on the cheek center. Keep shine and wing length controlled; do not add a full-face coverage pass.',
+    MakeupStyle.KOREAN_SOFT: 'Use softly diffused upper-lid color, soft hairlike brow definition without a carved lower edge, a clearly visible but sheer youthful pink flush centered on the apples closer to the nose and blended outward with no round patch, and a visible gradient lip tint concentrated at the center and feathered toward the edges.',
+    MakeupStyle.FRESH: 'Use a light, lively look: place a sheer blush on the apples and blend it softly outward, pair it with a fresh but balanced lip, keep eye definition light, and preserve skin texture.',
+    MakeupStyle.DATE_NIGHT: 'Give the outer eyes and lashes more definition than a daytime look, with a softly extended tapered wing when selected and a coordinated lip. Place cheek color higher and outward, and keep deeper pigment blended and within the selected areas.',
+    MakeupStyle.SOPHISTICATED: 'Use controlled, precise definition: groomed brow tails, clean tapered eye edges, a restrained cheekbone sweep, and coordinated satin-like color. Keep placement deliberate and avoid shine everywhere or heavy contrast.',
+    MakeupStyle.SOFT_GLAM: 'Use a luminous but skin-like finish only in selected complexion areas, layered and diffused neutral eye depth, defined lashes, softly lifted outward cheek color, and a blended lip. Build dimension through gradual blending rather than hard lines or a smoky block.',
 }
 
 
@@ -66,7 +66,9 @@ def enhancement_prompt(style, plan=None):
         direction = ('Apply these measured, selected makeup techniques: ' +
                      ' '.join(techniques) + ' '
                      'Demonstrate EACH selected technique in its own targeted area; do not silently skip one '
-                     'or substitute a different cosmetic change. Placement entries change placement or '
+                     'or substitute a different cosmetic change. Every selected technique must remain '
+                     'perceptible in a normal-size before/after comparison; blend its edges without fading '
+                     'the requested effect into invisibility. Placement entries change placement or '
                      'highlight only, not the entire region color or finish. ' + lip_specific_direction +
                      'Do not add unselected feature edits; optional facial base makeup is allowed as described below. '
                      'For a color entry, use only the supplied relative '

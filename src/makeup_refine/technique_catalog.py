@@ -14,8 +14,8 @@ from .look_models import MakeupStyle
 CATALOG_PATH = Path(__file__).with_name('technique_mapping_table.json')
 MIN_CONFIDENCE = .85
 MAX_SELECTED_TECHNIQUES = 7
-MIN_DISTINCT_REGIONS = 5
-PLANNED_REGION_TARGET = 5
+MIN_DISTINCT_REGIONS = 4
+PLANNED_REGION_TARGET = 4
 MAX_PLACEMENT_INTENSITY = .7
 MAX_NOSE_INTENSITY = .35
 PROVISIONAL_PLACEMENT_INTENSITY = {
@@ -24,7 +24,7 @@ PROVISIONAL_PLACEMENT_INTENSITY = {
     'blush': .65,
 }
 PROVISIONAL_TECHNIQUE_INTENSITY = {'lips_02': .7, 'eyeliner_05': .7}
-# These five are the normal everyday baseline. They are placement refinements,
+# These are the normal everyday baseline options. They are placement refinements,
 # not defect claims, and are selected only when the anatomical region is visible.
 STYLE_BASELINE_PRIORITY = (
     # Keep the core eye/brow/lip areas ahead of optional blush.
@@ -39,20 +39,32 @@ STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
 # unsafe color edit eligible. Auto deliberately retains its existing ranking.
 STYLE_TECHNIQUE_PRIORITY = {
     MakeupStyle.AUTO: STYLE_BASELINE_PRIORITY,
-    MakeupStyle.NATURAL: ('eyeshadow_07', 'brow_06', 'lips_04', 'lips_02',
+    MakeupStyle.NATURAL: ('eyeshadow_07', 'brow_06', 'lips_01', 'lips_04', 'lips_02',
                           'eyeliner_05', 'blush_01', 'foundation_02', 'nose_02'),
     MakeupStyle.WORK: ('brow_04', 'brow_06', 'eyeliner_05', 'eyeshadow_07',
                        'foundation_01', 'foundation_02', 'lips_01', 'blush_01'),
     MakeupStyle.KOREAN_SOFT: ('eyeshadow_07', 'blush_01', 'lips_01', 'eyeliner_05',
-                              'brow_06', 'foundation_02', 'nose_02'),
+                              'brow_08', 'foundation_02', 'nose_02'),
     MakeupStyle.FRESH: ('blush_01', 'lips_01', 'eyeshadow_07', 'eyeliner_05', 'brow_06',
                         'foundation_02', 'nose_02'),
-    MakeupStyle.DATE_NIGHT: ('eyeliner_02', 'eyeshadow_02', 'lips_01', 'brow_05',
+    MakeupStyle.DATE_NIGHT: ('eyeliner_02', 'eyeshadow_02', 'eyeliner_05',
+                             'eyeshadow_07', 'lips_01', 'brow_05',
                              'blush_01', 'nose_02', 'foundation_02'),
     MakeupStyle.SOPHISTICATED: ('brow_05', 'brow_06', 'eyeliner_05', 'eyeshadow_07',
                                 'lips_03', 'lips_01', 'nose_02', 'foundation_02'),
     MakeupStyle.SOFT_GLAM: ('eyeshadow_02', 'eyeshadow_07', 'eyeliner_05', 'blush_01',
                             'lips_01', 'brow_06', 'nose_02', 'foundation_02'),
+}
+
+# Reserve the visual signature of a selected named style before filling the
+# remaining slots with other suitable proposals. Each entry still has to pass
+# the ordinary visibility, confidence, trigger, color-cap, and conflict gates.
+STYLE_SIGNATURE_PRIORITY = {
+    MakeupStyle.NATURAL: ('lips_01',),
+    MakeupStyle.FRESH: ('blush_01', 'lips_01'),
+    MakeupStyle.DATE_NIGHT: ('eyeliner_05', 'eyeshadow_07', 'lips_01'),
+    MakeupStyle.SOPHISTICATED: ('brow_06', 'eyeliner_05', 'lips_01'),
+    MakeupStyle.SOFT_GLAM: ('eyeshadow_07', 'eyeliner_05', 'lips_01', 'blush_01'),
 }
 
 # Experimental, style-specific applicability thresholds. A style can broaden
@@ -61,6 +73,7 @@ STYLE_TECHNIQUE_PRIORITY = {
 STYLE_TRIGGER_OVERRIDES = {
     MakeupStyle.NATURAL: {
         'lips_04': {'lip_chroma_dominance_score': {'above_threshold': .80}},
+        'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .24}},
     },
     MakeupStyle.WORK: {
         'foundation_01': {'under_eye_darkness_score': {'above_threshold': .40}},
@@ -83,21 +96,12 @@ STYLE_TRIGGER_OVERRIDES = {
     MakeupStyle.SOPHISTICATED: {
         'brow_05': {'brow_tail_fade_score': {'above_threshold': .65}},
         'lips_03': {'lip_undertone_hue_gap': {'above_threshold': 7.}},
+        'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .25}},
     },
     MakeupStyle.SOFT_GLAM: {
         'eyeshadow_02': {'crease_visibility': {'below_threshold': .40}},
         'lips_01': {'lip_skin_contrast_ratio': {'below_threshold': .26}},
     },
-}
-STYLE_PLACEMENT_INTENSITY_SCALE = {
-    MakeupStyle.AUTO: 1.0,
-    MakeupStyle.NATURAL: .82,
-    MakeupStyle.WORK: .90,
-    MakeupStyle.KOREAN_SOFT: 1.0,
-    MakeupStyle.FRESH: .95,
-    MakeupStyle.DATE_NIGHT: 1.08,
-    MakeupStyle.SOPHISTICATED: .92,
-    MakeupStyle.SOFT_GLAM: 1.08,
 }
 EXPERIMENTAL_THRESHOLDS = {
     'inter_eye_distance': {'above_threshold': .75, 'below_threshold': .55},
@@ -217,7 +221,7 @@ class TechniqueCatalog:
         return STYLE_TRIGGER_OVERRIDES.get(style, {})
 
     def _validate(self):
-        if self.data.get('table_version') != '1.3':
+        if self.data.get('table_version') != '1.4':
             raise SpikeError('CONFIGURATION_ERROR', 'Unsupported technique table version.')
         source_cap = self.data['global_rules']['max_total_suggestions_per_job']
         if source_cap != MAX_SELECTED_TECHNIQUES:
@@ -237,6 +241,19 @@ class TechniqueCatalog:
             for entry in data.get('excluded', []):
                 if entry['excluded_id'] in self.entries:
                     raise SpikeError('CONFIGURATION_ERROR', 'Excluded technique is active.')
+        for style_name, fallbacks in self.data.get('style_color_fallbacks', {}).items():
+            try:
+                MakeupStyle(style_name)
+            except ValueError as exc:
+                raise SpikeError('CONFIGURATION_ERROR', 'Unknown style color fallback.') from exc
+            for technique_id, raw_delta in fallbacks.items():
+                item = self.entries.get(technique_id)
+                if item is None or item[1]['adjustment_type'] != 'color':
+                    raise SpikeError('CONFIGURATION_ERROR', 'Style color fallback must name an active color technique.')
+                proposal = TechniqueProposal(technique_id=technique_id,
+                                             color_delta=ColorDelta.model_validate(raw_delta))
+                if self._strength(proposal, item[1], item[0]) is None:
+                    raise SpikeError('CONFIGURATION_ERROR', 'Style color fallback exceeds a color cap.')
         for name in ('MAX_DELTA_L', 'MAX_DELTA_C', 'MAX_DELTA_H_DEGREES'):
             if self.data['color_adjustment_caps'][name] <= 0:
                 raise SpikeError('CONFIGURATION_ERROR', 'Invalid color cap.')
@@ -301,13 +318,14 @@ class TechniqueCatalog:
             return None  # Drop excessive color requests; never clip them.
         return {'color_delta': delta.model_dump()}
 
-    def complete_placement_proposals(self, analysis):
-        """Use measured triggers when the vision model omits a placement candidate.
+    def complete_placement_proposals(self, analysis, style=MakeupStyle.AUTO):
+        """Complete safe proposals from measurements when vision omits candidates.
 
-        This adds only vocabulary entries, never final selections. The normal
-        visibility, confidence, threshold, and conflict gates still run in select.
-        Color adjustments require a model-supplied signed delta and are not added.
+        Placement entries use conservative catalog intensities. A small named-
+        style color delta may also be supplied for a measured trigger. The normal
+        visibility, confidence, threshold, color-cap, and conflict gates still run.
         """
+        style = MakeupStyle(style or MakeupStyle.AUTO)
         analysis = TechniqueAnalysis.model_validate(analysis).model_copy(deep=True)
         proposed = {item.technique_id for item in analysis.proposals}
         for technique_id, (region, entry) in self.entries.items():
@@ -318,6 +336,22 @@ class TechniqueCatalog:
                 technique_id=technique_id,
                 intensity=PROVISIONAL_TECHNIQUE_INTENSITY.get(
                     technique_id, PROVISIONAL_PLACEMENT_INTENSITY[region])))
+        # Do not let a vision model omit a style-signature color technique when
+        # the measured trigger and anatomical visibility both support it.
+        style_color_fallbacks = self.data.get('style_color_fallbacks', {})
+        for technique_id, delta in style_color_fallbacks.get(style.value, {}).items():
+            if technique_id in proposed:
+                continue
+            region, entry = self.entries[technique_id]
+            visible = analysis.visibility.get(region)
+            if (visible is None or visible.value is not True or
+                    visible.detection_confidence < MIN_CONFIDENCE):
+                continue
+            overrides = STYLE_TRIGGER_OVERRIDES.get(style, {}).get(technique_id, {})
+            if self._check(entry['trigger'], analysis, overrides) is None:
+                continue
+            analysis.proposals.append(TechniqueProposal(
+                technique_id=technique_id, color_delta=ColorDelta(**delta)))
         return analysis
 
     def select(self, analysis, style=MakeupStyle.AUTO):
@@ -342,7 +376,9 @@ class TechniqueCatalog:
             visible = analysis.visibility.get(region)
             if visible is None or visible.value is not True or visible.detection_confidence < MIN_CONFIDENCE:
                 continue
-            baseline = bool(entry.get('style_baseline'))
+            baseline_styles = entry.get('style_baseline_styles')
+            baseline = bool(entry.get('style_baseline')) or (
+                baseline_styles is not None and style.value in baseline_styles)
             fallback = (proposal.technique_id in STYLE_BASELINE_FALLBACKS and
                         entry['adjustment_type'] == 'placement')
             # A fallback remains a measured technique when its own trigger is
@@ -380,10 +416,6 @@ class TechniqueCatalog:
             strength = self._strength(proposal, entry, region)
             if strength is None:
                 continue
-            if entry['adjustment_type'] == 'placement':
-                cap = MAX_NOSE_INTENSITY if region == 'nose_contour' else MAX_PLACEMENT_INTENSITY
-                strength['intensity'] = min(
-                    cap, strength['intensity'] * STYLE_PLACEMENT_INTENSITY_SCALE[style])
             confidence = min([visible.detection_confidence] +
                              [item['detection_confidence'] for item in evidence])
             result = {'technique_id': proposal.technique_id, 'region': region,
@@ -429,6 +461,14 @@ class TechniqueCatalog:
                 if result['region'] not in {item['region'] for item in selected}:
                     add_result(technique_id, result)
         else:
+            # Keep signature regions when candidates are safely available;
+            # this prevents generic fillers (for example nose/base makeup)
+            # from displacing the selected style's defining eye/lip changes.
+            for technique_id in STYLE_SIGNATURE_PRIORITY.get(style, ()):
+                result = (eligible_by_id.get(technique_id) or
+                          baseline_eligible.get(technique_id))
+                if result is not None:
+                    add_result(technique_id, result)
             for technique_id in style_priorities:
                 result = eligible_by_id.get(technique_id)
                 if result is not None and result['region'] not in {
@@ -438,7 +478,7 @@ class TechniqueCatalog:
                 if result['region'] not in {item['region'] for item in selected}:
                     add_result(technique_id, result)
 
-        # Fill toward five distinct regions with visible-only styling options
+        # Fill toward four distinct regions with visible-only styling options
         # in the selected style's order. These entries have visibility as
         # their suitability evidence; they never assert a facial defect.
         for technique_id in style_priorities:

@@ -1,14 +1,64 @@
 {
-  "table_version": "1.3",
+  "table_version": "1.4",
   "notes": "Machine-readable mirror of technique-mapping-table.md. If the two ever disagree, technique-mapping-table.md is the source of truth and this file should be regenerated from it — do not hand-edit this file independently.",
   "global_rules": {
     "max_total_suggestions_per_job": 7,
-    "planned_region_target_when_visible": 5,
-    "minimum_visible_changes_goal": 5,
+    "planned_region_target_when_visible": 4,
+    "minimum_visible_changes_goal": 4,
     "selection_when_over_cap": "rank by detection_confidence descending, keep top N up to cap",
     "padding_to_reach_cap_allowed": false,
     "unit_normalization_default": "IED",
     "id_reassignment_allowed": false
+  },
+  "style_color_fallbacks": {
+    "Natural": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.01,
+        "delta_chroma": 0.025,
+        "delta_hue_degrees": 0.0
+      }
+    },
+    "Korean Soft": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.01,
+        "delta_chroma": 0.025,
+        "delta_hue_degrees": 0.0
+      }
+    },
+    "Fresh": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.01,
+        "delta_chroma": 0.025,
+        "delta_hue_degrees": 0.0
+      }
+    },
+    "Date Night": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.01,
+        "delta_chroma": 0.025,
+        "delta_hue_degrees": 0.0
+      }
+    },
+    "Sophisticated": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.01,
+        "delta_chroma": 0.025,
+        "delta_hue_degrees": 0.0
+      }
+    },
+    "Soft Glam": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.01,
+        "delta_chroma": 0.025,
+        "delta_hue_degrees": 0.0
+      }
+    }
   },
   "color_adjustment_caps": {
     "color_space": "OKLCH",
@@ -202,6 +252,15 @@
           "cannot_target_same_brow_as": ["brow_04"],
           "enabled": false,
           "enabled_note": "ships disabled by default — highest identity-drift risk of the brow entries; enable only after Phase 1 confirms no landmark drift beyond tolerance on the diverse test set"
+        },
+        {
+          "id": "brow_08",
+          "adjustment_type": "placement",
+          "style_baseline_styles": ["Korean Soft"],
+          "trigger": {"feature": "brow_edge_definition", "comparator": "below_threshold"},
+          "technique": "soft_hairlike_brow_definition",
+          "instruction_template": "Add a few soft, hairlike strokes only within the existing brow to make it read a little fuller and groomed. Follow its natural growth direction and preserve its outline; do not sharpen the lower edge or impose a straight or arched shape.",
+          "mask_scope": "existing_brow_polygon_plus_margin"
         }
       ],
       "excluded": []
@@ -278,8 +337,8 @@
           "id": "blush_01",
           "adjustment_type": "placement",
           "style_baseline": true,
-          "technique": "high_outward_cheek_blend",
-          "instruction_template": "Sweep a soft blush high on the outer cheeks and blend it toward the temples; keep the color harmonious with the existing lip tone and avoid round patches."
+          "technique": "style_aware_cheek_blend",
+          "instruction_template": "Apply soft cheek color at the placement specified for the selected style, adapted to the visible face and blended without a hard edge or round patch."
         }
       ]
     },

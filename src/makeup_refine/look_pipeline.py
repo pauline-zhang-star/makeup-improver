@@ -12,13 +12,30 @@ from .look_composite import composite_complexion_base, preserve_complexion_textu
 from .landmarks import validate_face, LIPS, INNER_LIPS
 from .lip_blend import blend_full_lips
 from .technique_catalog import (TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGION_TARGET,
-                                STYLE_TECHNIQUE_PRIORITY, STYLE_PLACEMENT_INTENSITY_SCALE,
-                                STYLE_TRIGGER_OVERRIDES)
+                                STYLE_TECHNIQUE_PRIORITY, STYLE_TRIGGER_OVERRIDES)
 from PIL import Image
 from .models import SpikeError
 from .preflight import check_face
 from .quality import (validate_candidate_geometry, validate_facial_proportions,
-                      validate_protected_pixels)
+                      validate_protected_pixels, region_metrics,
+                      VisibilityThresholds)
+
+
+SELECTED_REGION_THRESHOLDS = VisibilityThresholds(
+    min_mean_delta=2.0, max_mean_delta=35.0,
+    pixel_delta=3.0, min_changed_fraction=.20)
+
+
+def selected_region_change_metrics(original, enhanced, points, style, selected):
+    """Measure whether each selected technique changed its own mask region."""
+    results = []
+    for item in selected:
+        mask = direct_edit_mask(original.size, points, style, [item])
+        measurement = region_metrics(original, enhanced, [mask],
+                                     thresholds=SELECTED_REGION_THRESHOLDS)[0]
+        results.append({'techniqueId': item['technique_id'],
+                        'region': item['region'], **measurement})
+    return results
 
 
 def summarize_observed_changes(steps, selected, allowed_supplementary_areas=()):
@@ -111,7 +128,6 @@ class LookPipeline:
                        'selectedTechniques': [item['technique_id'] for item in plan.selected],
                        'styleTechniquePreference': list(STYLE_TECHNIQUE_PRIORITY[style]),
                        'styleTriggerOverrides': STYLE_TRIGGER_OVERRIDES.get(style, {}),
-                       'stylePlacementIntensityScale': STYLE_PLACEMENT_INTENSITY_SCALE[style],
                        'plannedDistinctRegionsTarget': PLANNED_REGION_TARGET,
                        'plannedTargetMet': len({item['region'] for item in plan.selected}) >= PLANNED_REGION_TARGET,
                        'thresholdsEmpiricallyCalibrated': False}
@@ -161,16 +177,42 @@ class LookPipeline:
                         original, enhanced, foundation_mask)
                 alignment['protectedRegionComposite'] = composite_report
                 alignment['complexionTexture'] = complexion_texture_report
+                selected_changes = selected_region_change_metrics(
+                    original, enhanced, points, style, plan.selected)
+                alignment['selectedTechniqueChangeMetrics'] = selected_changes
                 if self.on_aligned:
                     self.on_aligned(enhanced)
                 deviation = validate_candidate_geometry(enhanced, original, points, self.landmarks)
                 proportions = validate_facial_proportions(
                     enhanced, original, self.landmarks, style=style)
                 preservation = validate_protected_pixels(original, enhanced, mask)
+                region_issues = [item for item in selected_changes
+                                 if item['tooLittleChange'] or item['tooMuchChange']]
+                if region_issues:
+                    names = ', '.join(sorted({item['region'] for item in region_issues}))
+                    raise SpikeError(
+                        'QUALITY_CHECK_FAILED',
+                        f'The selected {names} technique(s) fell outside the allowed visible-change band in their own edit regions.',
+                        {'selectedTechniqueChangeMetrics': selected_changes})
             except SpikeError as exc:
                 if exc.code not in {'QUALITY_CHECK_FAILED', 'NO_FACE', 'MULTIPLE_FACES'}:
                     raise
                 correction = exc.message
+                selected_changes = alignment.get('selectedTechniqueChangeMetrics', [])
+                region_issues = [item for item in selected_changes
+                                 if item['tooLittleChange'] or item['tooMuchChange']]
+                if region_issues:
+                    too_little = sorted({item['region'] for item in region_issues
+                                         if item['tooLittleChange']})
+                    too_much = sorted({item['region'] for item in region_issues
+                                       if item['tooMuchChange']})
+                    if too_little:
+                        correction += (f' Also, the selected {", ".join(too_little)} region(s) '
+                                       'did not show enough visible change inside their own masks; '
+                                       'render those techniques clearly while keeping placement bounded.')
+                    if too_much:
+                        correction += (f' Also, the selected {", ".join(too_much)} region(s) '
+                                       'changed too strongly; soften those selected techniques inside their masks.')
                 record = {'attempt': attempt, 'status': 'rejected', 'errorCode': exc.code,
                           'message': exc.message, 'alignment': alignment,
                           'maxLandmarkDeviation': deviation, **exc.details}
@@ -195,6 +237,7 @@ class LookPipeline:
                     'spatialAlignment': alignment, 'generationAttempts': attempts,
                     'annotationAnchors': annotation_anchors(points),
                     'maxLandmarkDeviation': deviation,
+                    'selectedTechniqueChangeMetrics': alignment['selectedTechniqueChangeMetrics'],
                     **proportions,
                     'maskCoverageFraction': float(np.mean(np.asarray(mask) > 0)),
                     'humanReviewRequired': True, **preservation}

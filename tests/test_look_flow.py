@@ -128,6 +128,38 @@ def test_named_style_relaxes_cosmetic_rendering_without_relaxing_safety_rules():
     assert 'moderately stronger pigment placement' in prompt
     assert 'a decrease in eye opening' in prompt
     assert 'visible iris or eye white' in prompt
+    assert 'clearly visible but sheer youthful pink flush' in prompt
+    selected = [{'technique_id': 'blush_01', 'region': 'blush',
+                 'adjustment_type': 'placement', 'technique': 'style_aware_cheek_blend',
+                 'instruction': 'Apply a soft cheek tint.', 'intensity': .65}]
+    assert 'perceptible in a normal-size before/after comparison' in enhancement_prompt(
+        MakeupStyle.KOREAN_SOFT, {'selected': selected})
+
+
+def test_selected_region_change_metrics_flag_an_omitted_blush(image):
+    from makeup_refine.look_pipeline import selected_region_change_metrics
+
+    points = np.asarray(Detector().detect(image)[0])
+    blush = [{'technique_id': 'blush_01', 'region': 'blush',
+              'adjustment_type': 'placement', 'intensity': .65}]
+    unchanged = selected_region_change_metrics(
+        image, image.copy(), points, MakeupStyle.KOREAN_SOFT, blush)
+    assert unchanged[0]['tooLittleChange']
+
+    from makeup_refine.look_mask import direct_edit_mask
+    mask = np.asarray(direct_edit_mask(image.size, points, MakeupStyle.KOREAN_SOFT, blush)) > 128
+    pixels = np.asarray(image).copy()
+    pixels[mask] = (190, 85, 100)
+    visible = selected_region_change_metrics(
+        image, Image.fromarray(pixels), points, MakeupStyle.KOREAN_SOFT, blush)
+    assert not visible[0]['tooLittleChange']
+
+
+def test_noop_generation_fails_selected_region_visibility_check(image):
+    provider = Provider()
+    provider.enhance = lambda original, style, mask, plan=None: original.copy()
+    with pytest.raises(SpikeError, match='fell outside the allowed visible-change band'):
+        LookPipeline(provider, provider, Detector(), max_edit_attempts=1).run(image)
 
 
 def test_named_style_allows_a_little_more_cosmetic_eye_opening(monkeypatch):
@@ -451,6 +483,29 @@ def test_report_uses_two_images_and_actual_instructions(tmp_path, image):
     assert 'Lift the outer tip' not in html
 
 
+def test_rejected_api_candidate_stays_in_before_after_slider(tmp_path, image):
+    original = image
+    original.save(tmp_path / 'originalImage.png')
+    candidate = Image.new('RGB', original.size, (170, 90, 120))
+    candidate.save(tmp_path / 'candidateImage.png')
+    aligned = Image.new('RGB', original.size, (100, 130, 170))
+    aligned.save(tmp_path / 'aligned-candidate-1.png')
+
+    report = {'status': 'failed', 'errorCode': 'QUALITY_CHECK_FAILED',
+              'message': 'Eye opening decreased.', 'requestedStyle': 'Korean Soft',
+              'candidateImage': 'candidateImage.png',
+              'alignedCandidateImage': 'aligned-candidate-1.png'}
+    save_review(tmp_path, original, None, report)
+
+    stored = json.loads((tmp_path / 'result.json').read_text())
+    html = (tmp_path / 'review.html').read_text()
+    assert stored['enhancedImage'] is None
+    assert 'Rejected candidate shown for comparison only' in html
+    assert 'Rejected candidate only' in html
+    assert 'type="range"' in html and 'pointerdown' in html
+    assert html.count('data:image/png;base64,') >= 2
+
+
 def test_cli_generates_saves_pair_and_retries_comparison_only(tmp_path, image, monkeypatch, capsys):
     from makeup_refine import cli
     import makeup_refine.providers
@@ -541,18 +596,20 @@ def test_recompose_uses_saved_selected_mask_and_only_selected_lip_transfer(image
 
 def test_unplanned_global_edit_is_locked_to_original_outside_makeup_mask(image):
     provider = Provider()
-    saved = []
+    composites = []
     def edit(original, style, mask, plan):
         provider.mask = mask
         return Image.new('RGB', original.size, (0, 0, 0))
     provider.enhance = edit
-    enhanced, result = LookPipeline(provider, provider, Detector(), saved.append,
-                                    max_edit_attempts=1).run(image)
-    assert saved and result['status'] == 'completed'
+    pipeline = LookPipeline(provider, provider, Detector(),
+                             max_edit_attempts=1, on_aligned=composites.append)
+    with pytest.raises(SpikeError, match='allowed visible-change band'):
+        pipeline.run(image)
+    enhanced = composites[0]
     assert np.array_equal(np.asarray(enhanced), np.asarray(image)) is False
     outside = np.asarray(provider.mask) == 0
     assert np.array_equal(np.asarray(enhanced)[outside], np.asarray(image)[outside])
-    assert [call[0] for call in provider.calls] == ['plan', 'explain']
+    assert [call[0] for call in provider.calls] == ['plan']
 
 
 @pytest.mark.parametrize('recovers', [True, False])
@@ -562,7 +619,9 @@ def test_corrective_retry_uses_original_and_same_plan_once(image, recovers):
     def edit(original, style, mask, plan, correction=None):
         calls.append((original, plan, correction))
         if recovers and len(calls) == 2:
-            return original.copy()
+            recovered = original.copy()
+            recovered.paste((180, 80, 90), (200, 320, 300, 350))
+            return recovered
         return Image.new('RGB', (original.width - 1, original.height), (0, 0, 0))
     provider.enhance = edit
     pipeline = LookPipeline(provider, provider, Detector(), saved.append,

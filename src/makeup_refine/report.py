@@ -32,7 +32,10 @@ def write_report(path: Path, original: Image.Image, *, masks: dict[str, Image.Im
     compare = ""
     if result is not None:
         annotations = after_annotations_html(look_result, result.size) if look_result else ''
-        diagnostic = bool(look_result and look_result.get('status') == 'candidate_rejected')
+        diagnostic = bool(look_result and (
+            look_result.get('status') == 'candidate_rejected' or
+            (look_result.get('enhancedImage') is None and
+             (look_result.get('alignedCandidateImage') or look_result.get('candidateImage')))))
         after_alt = 'Rejected candidate for inspection only' if diagnostic else 'AI-refined photo'
         coverage_label = 'Candidate shown' if diagnostic else 'Refined coverage'
         end_label = 'Rejected candidate only' if diagnostic else 'Refined only'
@@ -67,8 +70,10 @@ li{margin-bottom:18px}li p{margin-top:4px}footer{border-top:1px solid #ded4d8;ma
     if look_result is not None:
         html = html.replace('A closer look, before the next step.', 'Your makeup look')
         html += '<p>Style: ' + escape(look_result.get('requestedStyle', 'Auto')) + '</p>'
-        if look_result['status'] == 'candidate_rejected':
-            html += '<p class="notice">REJECTED CANDIDATE / 候选图未通过：面部关键点明显偏移。下面只供检查失败原因，不是可用的增强结果。</p>'
+        candidate_only = (look_result.get('enhancedImage') is None and
+                          (look_result.get('alignedCandidateImage') or look_result.get('candidateImage')))
+        if look_result['status'] == 'candidate_rejected' or candidate_only:
+            html += '<p class="notice">Rejected candidate shown for comparison only. It failed an automated quality check and is not an accepted enhanced image. / 下方滑块显示未通过自动质量检查的候选图，仅供测试对比，不是已接受的增强结果。</p>'
         elif look_result['status'] == 'rejected':
             html += '<p class="notice">The generated result needs review because changes beyond makeup were detected.</p>'
             html += f'<figure style="max-width:600px"><img src="{before}" alt="Original photo"></figure>'

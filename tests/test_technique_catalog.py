@@ -153,6 +153,20 @@ def test_measured_placement_can_be_selected_when_model_omits_proposals():
     assert all(item.technique_id != 'lips_01' for item in complete.proposals)
 
 
+def test_named_style_does_not_fall_back_to_unrelated_auto_trigger_matches():
+    catalog = TechniqueCatalog()
+    measurements = {'brow_density_gap_score': measure(.99),
+                    'brow_visibility': measure(.98)}
+    raw = analysis([placement('brow_04', .6)], measurements)
+    auto = catalog.select(catalog.complete_placement_proposals(raw), MakeupStyle.AUTO)
+    date_night = catalog.select(
+        catalog.complete_placement_proposals(raw, MakeupStyle.DATE_NIGHT),
+        MakeupStyle.DATE_NIGHT)
+    assert 'brow_04' in [item['technique_id'] for item in auto.selected]
+    assert 'brow_04' not in [item['technique_id'] for item in date_night.selected]
+    assert 'brow_06' in [item['technique_id'] for item in date_night.selected]
+
+
 def test_korean_soft_supplies_measured_relative_lip_delta_when_model_omits_it():
     catalog = TechniqueCatalog()
     raw = analysis([], {'lip_skin_contrast_ratio': measure(.22)})
@@ -163,44 +177,60 @@ def test_korean_soft_supplies_measured_relative_lip_delta_when_model_omits_it():
         'delta_chroma': .025, 'delta_hue_degrees': 0.0}
     selected = catalog.select(complete, style=MakeupStyle.KOREAN_SOFT).selected
     assert [item['technique_id'] for item in selected] == [
-        'lips_01', 'eyeshadow_07', 'blush_01', 'eyeliner_05']
-    assert selected[0]['color_delta']['color_space'] == 'OKLCH'
+        'eyeshadow_07', 'blush_01', 'eyeliner_05', 'lips_01']
+    assert selected[-1]['color_delta']['color_space'] == 'OKLCH'
+    assert selected[-1]['selection_basis'] == 'style_recipe'
 
 
-def test_korean_soft_does_not_supply_lip_delta_when_trigger_is_not_met():
+def test_korean_soft_recipe_supplies_lip_delta_even_when_no_defect_trigger_is_met():
     catalog = TechniqueCatalog()
     raw = analysis([], {'lip_skin_contrast_ratio': measure(.35)})
     complete = catalog.complete_placement_proposals(raw, style=MakeupStyle.KOREAN_SOFT)
-    assert all(item.technique_id != 'lips_01' for item in complete.proposals)
+    proposal = next(item for item in complete.proposals if item.technique_id == 'lips_01')
+    assert proposal.color_delta.delta_chroma == .025
 
 
 @pytest.mark.parametrize(('style', 'expected'), [
-    (MakeupStyle.NATURAL, ['lips_01']),
-    (MakeupStyle.FRESH, ['blush_01', 'lips_01']),
-    (MakeupStyle.DATE_NIGHT, ['eyeliner_05', 'eyeshadow_07', 'lips_01']),
-    (MakeupStyle.SOPHISTICATED, ['brow_06', 'eyeliner_05', 'lips_01']),
-    (MakeupStyle.SOFT_GLAM, ['eyeshadow_07', 'eyeliner_05', 'lips_01', 'blush_01']),
+    (MakeupStyle.NATURAL, ['eyeshadow_07', 'brow_06', 'eyeliner_05', 'lips_01']),
+    (MakeupStyle.WORK, ['brow_06', 'eyeliner_05', 'eyeshadow_07', 'lips_01']),
+    (MakeupStyle.KOREAN_SOFT, ['eyeshadow_07', 'blush_01', 'eyeliner_05', 'lips_01']),
+    (MakeupStyle.FRESH, ['blush_01', 'lips_01', 'eyeshadow_07', 'eyeliner_05']),
+    (MakeupStyle.DATE_NIGHT, ['eyeliner_02', 'eyeshadow_02', 'brow_06', 'lips_01', 'blush_01']),
+    (MakeupStyle.SOPHISTICATED, ['brow_06', 'eyeliner_05', 'eyeshadow_07', 'lips_01']),
+    (MakeupStyle.SOFT_GLAM, ['eyeshadow_02', 'eyeliner_05', 'blush_01', 'lips_01']),
 ])
-def test_named_style_reserves_signature_regions_and_measured_lip_color(style, expected):
+def test_named_style_selects_its_recipe_independent_of_defect_thresholds(style, expected):
     catalog = TechniqueCatalog()
-    raw = analysis([], {'lip_skin_contrast_ratio': measure(.22)})
+    raw = analysis([], {
+        'lip_skin_contrast_ratio': measure(.38),
+        'eye_tilt_angle': measure(3.47), 'eye_aspect_ratio': measure(.246),
+        'crease_visibility': measure(.52),
+    })
     complete = catalog.complete_placement_proposals(raw, style)
     plan = catalog.select(complete, style)
     selected_ids = [item['technique_id'] for item in plan.selected]
     assert selected_ids[:len(expected)] == expected
     assert len({item['region'] for item in plan.selected}) == len(plan.selected)
     lip = next(item for item in plan.selected if item['technique_id'] == 'lips_01')
-    assert lip['selection_basis'] == 'measured_trigger'
+    assert lip['selection_basis'] == 'style_recipe'
+    if style == MakeupStyle.DATE_NIGHT:
+        assert next(x for x in plan.selected if x['technique_id'] == 'eyeliner_02')['intensity'] == .68
+        assert next(x for x in plan.selected if x['technique_id'] == 'eyeshadow_02')['intensity'] == .62
+        brow = next(x for x in plan.selected if x['technique_id'] == 'brow_06')
+        assert brow['selection_basis'] == 'style_recipe'
+        assert brow['intensity'] <= .35
 
 
-def test_signature_lip_color_is_not_forced_without_measured_trigger():
+def test_named_style_recipe_requires_confidently_visible_lips():
     catalog = TechniqueCatalog()
-    for style in (MakeupStyle.NATURAL, MakeupStyle.FRESH, MakeupStyle.DATE_NIGHT,
-                  MakeupStyle.SOPHISTICATED, MakeupStyle.SOFT_GLAM):
-        raw = analysis([], {'lip_skin_contrast_ratio': measure(.35)})
-        complete = catalog.complete_placement_proposals(raw, style)
-        plan = catalog.select(complete, style)
-        assert all(item['technique_id'] != 'lips_01' for item in plan.selected)
+    visibility = {region: measure(True) for region in
+                  ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
+                   'nose_contour', 'foundation')}
+    visibility['lips'] = measure(False)
+    raw = analysis([], {'lip_skin_contrast_ratio': measure(.38)}, visibility)
+    complete = catalog.complete_placement_proposals(raw, MakeupStyle.DATE_NIGHT)
+    plan = catalog.select(complete, MakeupStyle.DATE_NIGHT)
+    assert all(item['technique_id'] != 'lips_01' for item in plan.selected)
 
 
 def test_missing_local_geometry_is_added_only_for_confidently_visible_region():

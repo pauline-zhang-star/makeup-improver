@@ -1,5 +1,5 @@
 {
-  "table_version": "1.4",
+  "table_version": "1.6",
   "notes": "Machine-readable mirror of technique-mapping-table.md. If the two ever disagree, technique-mapping-table.md is the source of truth and this file should be regenerated from it — do not hand-edit this file independently.",
   "global_rules": {
     "max_total_suggestions_per_job": 7,
@@ -10,12 +10,20 @@
     "unit_normalization_default": "IED",
     "id_reassignment_allowed": false
   },
-  "style_color_fallbacks": {
+  "style_color_recipe_fallbacks": {
     "Natural": {
       "lips_01": {
         "color_space": "OKLCH",
-        "delta_lightness": 0.01,
-        "delta_chroma": 0.025,
+        "delta_lightness": 0.005,
+        "delta_chroma": 0.015,
+        "delta_hue_degrees": 0.0
+      }
+    },
+    "Work / Polished": {
+      "lips_01": {
+        "color_space": "OKLCH",
+        "delta_lightness": 0.0,
+        "delta_chroma": 0.015,
         "delta_hue_degrees": 0.0
       }
     },
@@ -38,8 +46,8 @@
     "Date Night": {
       "lips_01": {
         "color_space": "OKLCH",
-        "delta_lightness": 0.01,
-        "delta_chroma": 0.025,
+        "delta_lightness": 0.0,
+        "delta_chroma": 0.035,
         "delta_hue_degrees": 0.0
       }
     },
@@ -54,8 +62,8 @@
     "Soft Glam": {
       "lips_01": {
         "color_space": "OKLCH",
-        "delta_lightness": 0.01,
-        "delta_chroma": 0.025,
+        "delta_lightness": 0.005,
+        "delta_chroma": 0.03,
         "delta_hue_degrees": 0.0
       }
     }
@@ -87,9 +95,10 @@
         {
           "id": "eyeliner_02",
           "adjustment_type": "placement",
+          "style_baseline_styles": ["Date Night"],
           "trigger": {"feature": ["eye_tilt_angle", "eye_aspect_ratio"], "comparator": "matches_downturned_or_elongated"},
           "technique": "outer_wing_lift",
-          "instruction_template": "Extend a fine tapered wing from the outer third of the upper lash line slightly upward and outward; leave visible skin between pigment and the eye opening."
+          "instruction_template": "Create a clearly visible but fine tapered wing from the outer third of the upper lash line, lifting it upward and outward; leave visible skin between pigment and the eye opening."
         },
         {
           "id": "eyeliner_03",
@@ -126,9 +135,10 @@
         {
           "id": "eyeshadow_02",
           "adjustment_type": "placement",
+          "style_baseline_styles": ["Date Night", "Soft Glam"],
           "trigger": {"feature": "crease_visibility", "comparator": "below_threshold"},
           "technique": "outer_corner_deepen",
-          "instruction_template": "Blend a slightly deeper tone into the outer corner and outer crease area for added dimension."
+          "instruction_template": "Build clearly visible, blended depth at the outer corner and outer crease, keeping pigment above and outside the visible eye opening."
         },
         {
           "id": "eyeshadow_03",

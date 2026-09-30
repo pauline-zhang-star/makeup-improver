@@ -8,7 +8,7 @@ STYLE_BRIEFS = {
     MakeupStyle.WORK: 'Work / Polished: neat definition, balanced contrast, and a composed everyday finish.',
     MakeupStyle.KOREAN_SOFT: 'Korean Soft: softly diffused eyes, fresh blush and softly graduated lips. This describes makeup only, not ethnicity or facial anatomy.',
     MakeupStyle.FRESH: 'Fresh: lively but balanced blush and lip color, light eye definition, and realistic skin texture.',
-    MakeupStyle.DATE_NIGHT: 'Date Night: expressive eyes and coordinated lips, with flattering definition and carefully blended edges.',
+    MakeupStyle.DATE_NIGHT: 'Date Night: an unmistakably evening-ready makeup look with expressive eyes and coordinated lip color, while preserving the wearer\'s exact face and identity.',
     MakeupStyle.SOPHISTICATED: 'Sophisticated: controlled contrast, precise tapered definition, and harmonious eye and lip finishes.',
     MakeupStyle.SOFT_GLAM: 'Soft Glam: softly sculpted eye makeup, defined lashes, and blended luminous finishes without changing lighting.',
 }
@@ -19,7 +19,7 @@ STYLE_RENDERING_RULES = {
     MakeupStyle.WORK: 'Use tidy, balanced definition for a composed daytime look: softly groomed brows, neutral lid color, fine upper-lash definition, a restrained skin-like finish in selected complexion areas, and a light cheek tint kept mostly on the cheek center. Keep shine and wing length controlled; do not add a full-face coverage pass.',
     MakeupStyle.KOREAN_SOFT: 'Use softly diffused upper-lid color, soft hairlike brow definition without a carved lower edge, a clearly visible but sheer youthful pink flush centered on the apples closer to the nose and blended outward with no round patch, and a visible gradient lip tint concentrated at the center and feathered toward the edges.',
     MakeupStyle.FRESH: 'Use a light, lively look: place a sheer blush on the apples and blend it softly outward, pair it with a fresh but balanced lip, keep eye definition light, and preserve skin texture.',
-    MakeupStyle.DATE_NIGHT: 'Give the outer eyes and lashes more definition than a daytime look, with a softly extended tapered wing when selected and a coordinated lip. Place cheek color higher and outward, and keep deeper pigment blended and within the selected areas.',
+    MakeupStyle.DATE_NIGHT: 'Make this visibly more evening-ready than daytime makeup: softly groomed brows that frame the eyes, a clear tapered outer wing, deeper blended outer-corner shadow, richer coordinated lip pigment and lifted cheek color when those techniques are in the style recipe. Keep brow color natural and edges soft; balance eye depth, brow definition, cheek warmth and lip color as one palette, without forcing them to match exactly. Keep pigment blended and within the selected areas; never change eye opening or facial geometry.',
     MakeupStyle.SOPHISTICATED: 'Use controlled, precise definition: groomed brow tails, clean tapered eye edges, a restrained cheekbone sweep, and coordinated satin-like color. Keep placement deliberate and avoid shine everywhere or heavy contrast.',
     MakeupStyle.SOFT_GLAM: 'Use a luminous but skin-like finish only in selected complexion areas, layered and diffused neutral eye depth, defined lashes, softly lifted outward cheek color, and a blended lip. Build dimension through gradual blending rather than hard lines or a smoky block.',
 }
@@ -63,7 +63,10 @@ def enhancement_prompt(style, plan=None):
             'For the selected lower-lip center highlight, add a small light-catching accent only at the '
             'center of the lower lip; preserve its overall hue, saturation, gloss, outline and corners. '
             if any(item['technique_id'] == 'lips_02' for item in selected) else '')
-        direction = ('Apply these measured, selected makeup techniques: ' +
+        technique_heading = ('Apply the selected style recipe techniques: '
+                             if style != MakeupStyle.AUTO
+                             else 'Apply these measured, selected makeup techniques: ')
+        direction = (technique_heading +
                      ' '.join(techniques) + ' '
                      'Demonstrate EACH selected technique in its own targeted area; do not silently skip one '
                      'or substitute a different cosmetic change. Every selected technique must remain '

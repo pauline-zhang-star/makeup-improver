@@ -1,4 +1,4 @@
-# Technique Mapping Table (v1.4 — style-specific cheek and brow rendering)
+# Technique Mapping Table (v1.6 — balanced Date Night recipe)
 
 **Companion file:** [`src/makeup_refine/technique_mapping_table.json`](../src/makeup_refine/technique_mapping_table.json) mirrors every entry in this document in machine-readable form (ids, trigger conditions, instruction templates, caps). Load that file directly rather than transcribing the markdown tables below by hand — hand-transcription is a likely source of copy errors. This markdown file is the source of truth for *content and reasoning*; the JSON file is the source of truth for *exact field values* and should be regenerated from this document if the two ever disagree.
 
@@ -10,12 +10,13 @@ This table is the controlled vocabulary the refinement-planning AI call (Section
 
 ```
 photo
-→ detection (facial landmarks + color analysis)
-→ measured features (e.g. eye_aspect_ratio, inter_eye_distance, lip_skin_contrast)
-→ match measured triggers and assess which anatomical regions are visible
-→ local rules rank matching techniques using the selected style, then add eligible visible style-polish techniques toward 4 planned regions
+→ user selects an optional style (Auto is the default)
+→ detect facial landmarks, visible regions and continuous color/shape measurements
+→ Auto uses measured triggers and confidence ranking
+→ a named style uses its style-specific technique rules; measurements gate visibility and safety
+→ optional additions for named styles come only from that style's curated options
 → keep at most 7 techniques in total
-→ AI must cite which measured feature + threshold justified each suggestion (traceability requirement)
+→ record whether each technique came from the style recipe or a measured trigger
 → localized edit call executes the instruction
 ```
 
@@ -23,7 +24,7 @@ photo
 
 1. Trigger conditions are continuous, measured facial/color features — never skin tone, ethnicity, or any demographic label.
 2. Color adjustments are always relative deltas against the user's own detected color value — never a fixed target color/shade.
-3. The selected style orders suitable techniques; original-photo measurements, regional visibility, confidence and lighting still decide whether each measured technique applies. Style-specific threshold adjustments must be explicit and logged. If no measured trigger passes, only a listed visible style-polish technique may be added. Never claim a facial deficit as its reason.
+3. Auto uses general measured-opportunity selection. A named style uses its own rules to choose the makeup techniques that create that look; original-photo measurements, visibility, confidence and landmarks gate whether a selected technique is available and safe. Generic Auto trigger matches cannot be appended to a named-style plan. Never claim a facial deficit as the reason for a style technique.
 4. Every technique must be reversible/non-permanent makeup guidance, not a geometry change to the face itself.
 5. Test set validation (Phase 1) must confirm each trigger's measured threshold performs consistently across a range of skin tones and face shapes — this table assumes detection is reliable, it does not compensate for detection bias.
 
@@ -31,42 +32,42 @@ photo
 
 ## Rules for implementing this table (read before writing selection logic)
 
-**Cross-region selection cap.** The product owner revised the limit to **7** per job, across *all* regions combined, not per region. This overrides the earlier limit of 3 in the main design doc. A single photo can match entries in several regions at once (e.g. brows + eyeliner + lips), producing more matches than the cap allows. Selection logic must therefore:
-1. Evaluate every region's trigger conditions independently and collect all matches.
-2. Apply each region's own mutual-exclusivity rules first (e.g. `lips_01` vs `lips_04`) to narrow matches within a region.
-3. If more than 7 matches remain, Auto ranks by `detection_confidence` (highest first). A named style ranks its listed suitable techniques first, then other measured matches by confidence; every candidate must still pass its applicable measurement, visibility, confidence and lighting gates.
-4. If measured matches cover fewer than 4 distinct regions, add eligible style-polish techniques in confidently visible regions, ordered for the selected style, toward 4 planned regions. This leaves room for an edit that fails to appear while aiming for 4 *visibly changed* areas. These are positive styling options, not claims that a feature is defective. If fewer regions can be assessed confidently, return fewer. Never fill to 7 for its own sake.
+**Cross-region selection cap.** The product owner revised the limit to **7** per job, across *all* regions combined, not per region. A single photo can produce candidates in several regions. Selection logic must therefore:
+1. Auto ranks measured opportunities by confidence. A named style selects from its style-specific recipe and optional rule list. Recipe placements need visible anatomy, confidence and geometry safety, not a defect trigger; recipe colors use a capped relative delta on a confidently visible feature.
+2. Apply each region's mutual-exclusivity rules (e.g. `lips_01` vs `lips_04`) so techniques in one area do not conflict.
+3. For named styles, optional techniques must be listed for that style and pass its applicable rules. Do not append other generic trigger matches.
+4. Keep at most 7 techniques. A style may have more than four when its look requires it; do not pad with unrelated techniques just to reach a quota.
 
 **Product-owner revision:** aim for at least four *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for four distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
 
 ### v1.4 style-polish entries
 
-These entries require anatomical region visibility with confidence at least 0.85, not a deficit threshold. They are considered only when needed toward four distinct planned regions, using the selected style's preference order. Auto retains the existing order. They use placement intensity caps and the same identity safeguards as other entries. These are visibility-only styling options and do not assert a defect.
+These earlier entries provide visibility-only placement options; v1.5 introduced named-style recipes instead of waiting for generic corrective matches to leave unused slots.
 
-Style-specific thresholds below are provisional experiments. The original measurement must have confidence >=0.85, the region must be visible, and all global lighting and color-delta rules continue to apply. Overrides are attached to the selected technique's evidence and saved in the run report. For Natural, Korean Soft, Fresh, Date Night, Sophisticated, and Soft Glam, when visible lips meet that style's `lips_01` contrast trigger but the analysis model omits the color proposal, the local selector supplies a capped relative OKLCH proposal (`ΔL=+0.01`, `ΔC=+0.025`, `Δh=0°`). This is a prototype default, not a calibrated shade recommendation. These styles reserve defining candidates ahead of generic fillers when safe candidates are available; no region is forced when visibility, confidence, or the required measured trigger is missing.
+Auto uses the generic measurement-led selection flow. Named styles use their own curated technique rules, with photo analysis and landmarks checking region visibility, confidence, color caps, eye-opening limits and other geometry protections. A style technique does not require a measured “defect”; a generic Auto trigger cannot add an unrelated technique to the named-style plan. Color recipes remain small relative OKLCH deltas, require confidently visible lips and are never fixed product shades. Style intensity values and color deltas are provisional rendering controls, not professionally calibrated standards.
 
-### Style technique preference order
+### Style technique rules
 
-These lists rank eligible techniques. A listed technique is not selected when its required evidence, regional visibility, confidence, lighting or color-delta checks fail. Placement entries explicitly marked `style_baseline` may be added by confident region visibility when needed toward four distinct planned regions. `style_baseline_styles` limits that behavior to the named style.
+For named styles, the recipe column below is selected when its regions are confidently visible; it does not depend on defect thresholds. Optional techniques are curated per style and remain subject to their stated measurements. The selector never adds unrelated generic trigger matches. Auto keeps confidence-first measured selection. `style_baseline_styles` enables a placement only for its listed styles. All styles retain confidence, visibility, geometry, conflict and color-cap checks.
 
-| style | preference order | style-specific trigger overrides |
+| style | primary style recipe / preference order | additional corrective trigger overrides |
 |---|---|---|
 | Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` | None; default thresholds and confidence-first measured ranking |
-| Natural | `eyeshadow_07`, `brow_06`, `lips_01`, `lips_04`, `lips_02`, `eyeliner_05`, `blush_01`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.24; `lips_04`: chroma dominance >0.80 |
-| Work / Polished | `brow_04`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `foundation_01`, `foundation_02`, `lips_01`, `blush_01` | `foundation_01`: under-eye darkness >0.40; `brow_04`: density-gap score >0.78 |
-| Korean Soft | `eyeshadow_07`, `blush_01`, `lips_01`, `eyeliner_05`, `brow_08`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.25 (Auto <0.20) |
-| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `eyeliner_05`, `brow_06`, `foundation_02`, `nose_02` | `lips_01`: lip-skin contrast <0.27 |
-| Date Night | `eyeliner_02`, `eyeshadow_02`, `eyeliner_05`, `eyeshadow_07`, `lips_01`, `brow_05`, `blush_01`, `nose_02`, `foundation_02` | `eyeliner_02`: eye tilt <−2.5° or aspect ratio <0.22; `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.28 |
-| Sophisticated | `brow_05`, `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_03`, `lips_01`, `nose_02`, `foundation_02` | `brow_05`: tail-fade score >0.65; `lips_03`: undertone hue gap >7°; `lips_01`: lip-skin contrast <0.25 |
-| Soft Glam | `eyeshadow_02`, `eyeshadow_07`, `eyeliner_05`, `blush_01`, `lips_01`, `brow_06`, `nose_02`, `foundation_02` | `eyeshadow_02`: crease visibility <0.40; `lips_01`: lip-skin contrast <0.26 |
+| Natural | `eyeshadow_07`, `brow_06`, `eyeliner_05`, `lips_01`; then `lips_04`, `lips_02`, `blush_01`, `foundation_02`, `nose_02` | `lips_04`: chroma dominance >0.80 |
+| Work / Polished | `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_01`; then `brow_04`, `foundation_01`, `foundation_02`, `blush_01` | `foundation_01`: under-eye darkness >0.40; `brow_04`: density-gap score >0.78 |
+| Korean Soft | `eyeshadow_07`, `blush_01`, `eyeliner_05`, `lips_01`; then `brow_08`, `foundation_02`, `nose_02` | `brow_08`: brow-edge definition < table threshold |
+| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `eyeliner_05`; then `brow_06`, `foundation_02`, `nose_02` | None |
+| Date Night | `eyeliner_02` (.68), `eyeshadow_02` (.62), `brow_06` (soft lower-edge definition), `lips_01` (ΔC +.035), `blush_01` | No defect trigger for the recipe; selected regions must be confidently visible |
+| Sophisticated | `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_01`; then `brow_05`, `lips_03`, `nose_02`, `foundation_02` | `brow_05`: tail-fade score >0.65; `lips_03`: undertone hue gap >7° |
+| Soft Glam | `eyeshadow_02` (.58), `eyeliner_05`, `blush_01`, `lips_01`; then `eyeshadow_07`, `brow_06`, `nose_02`, `foundation_02` | None required for recipe |
 
 The intensity multipliers from v1.3 were removed. Their per-style percentages were not grounded in professional artistry references or image-set calibration; the named-style mask allowance remains the mechanism for broader placement. Trigger thresholds are still provisional engineering experiments, not professional standards or universal beauty measurements.
 
 ### Art-direction review against professional references
 
-These style names are useful consumer choices, not standardized technical categories. The qualitative direction is now differentiated as follows: **Natural** uses sheer skin-like finishes and soft, low-contrast definition; **Work / Polished** uses tidy neutral definition and restrained cheek/lip color; **Korean Soft** uses diffused eyes, soft natural brows, apple blush closer to the nose, and center-to-edge gradient lips; **Fresh** uses a light apple flush and lively but balanced lips; **Date Night** allows more outer-eye and lash definition with coordinated lips; **Sophisticated** favors controlled contrast and precise tapered placement; **Soft Glam** builds luminous, blended dimension in layers. The mask changes the cheek target using facial landmarks; it does not yet classify face shape, so these are style cues, not rigid rules for every person.
+These style names are useful consumer choices, not standardized technical categories. The qualitative direction is now differentiated as follows: **Natural** uses sheer skin-like finishes and soft, low-contrast definition; **Work / Polished** uses tidy neutral definition and restrained cheek/lip color; **Korean Soft** uses diffused eyes, soft natural brows, apple blush closer to the nose, and center-to-edge gradient lips; **Fresh** uses a light apple flush and lively but balanced lips; **Date Night** uses a softly defined brow to frame the stronger outer-eye definition and richer coordinated lip; **Sophisticated** favors controlled contrast and precise tapered placement; **Soft Glam** builds luminous, blended dimension in layers. The mask changes the cheek target using facial landmarks; it does not yet classify face shape, so these are style cues, not rigid rules for every person.
 
-For Natural, Fresh, Date Night, Sophisticated, and Soft Glam, the selector reserves the style's signature candidates before generic eligible fillers: Natural favors a restrained lip tint; Fresh favors blush and lips; Date Night favors eyeliner, eyeshadow, and lips; Sophisticated favors brows, eyeliner, and lips; Soft Glam favors eyeshadow, eyeliner, lips, and blush. Reservation only reorders already eligible techniques or visible-only placement baselines. Lip color still requires its style-specific measured contrast trigger, so missing or unsuitable evidence does not create a lip edit.
+The recipe is the visual direction selected by the user; measurements only decide whether its regions can be safely used. Date Night therefore may select an outer wing and deeper outer-corner shadow even when eye tilt and crease measurements do not call for those as corrective techniques. The eye aperture stays protected, and these techniques cannot reduce measured eye opening. If a recipe region is occluded or low-confidence, it is skipped. Style lip color uses a capped relative delta on the existing lip color, not a shade target.
 
 This review follows professional-artistry guidance that everyday makeup should enhance rather than transform, workplace makeup should keep attention on the person, Korean-inspired looks often use near-center apple blush and feathered gradient lips, blush location changes the visual effect, and soft glam depends on diffused blending rather than hard shapes ([M·A·C artistry direction](https://www.maccosmetics.com/blogs/mac-trend/no-makeup-makeup), [Bobbi Brown interview makeup](https://www.bobbibrowncosmetics.com/how-to-polished-interview-makeup), [Allure interview with Korean makeup artist Ko Won Hye](https://www.allure.com/story/how-to-do-chok-chok-korean-beauty-no-makeup-makeup), [Allure on professional blush placement](https://www.allure.com/story/how-to-apply-blush-techniques-used-by-makeup-artists), [Allure soft-glam guide](https://www.allure.com/story/soft-glam-makeup-guide-steps)). Rae Morris describes *Makeup Masterclass* as a 431-page instructional reference used by makeup schools, and her masterclass material highlights adapting technique to different eye shapes and bone structures ([book](https://raemorris.com/products/makeup-masterclass), [professional training](https://raemorris.com/products/sydney-masterclass-28-april-2026), [Rae Morris biography](https://raemorris.com/pages/about-rae-morris)). These sources support broad application principles; they do not supply the numerical thresholds or multipliers in this prototype.
 

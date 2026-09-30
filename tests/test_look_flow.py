@@ -441,6 +441,45 @@ def test_provider_plans_from_original_before_any_edit(image):
     assert body['messages'][1]['content'][1]['image_url']['url'].startswith('data:image/png;base64,')
 
 
+def test_named_style_recipe_is_selected_locally_without_a_defect_proposal(image):
+    image = image.resize((768, 1024))
+    answer = {
+        'measurements': {
+            'lip_skin_contrast_ratio': {'value': .38, 'detection_confidence': .94},
+            'eye_tilt_angle': {'value': 3.47, 'detection_confidence': .92},
+            'eye_aspect_ratio': {'value': .246, 'detection_confidence': .96},
+            'crease_visibility': {'value': .52, 'detection_confidence': .95},
+        },
+        'visibility': {region: {'value': True, 'detection_confidence': .98}
+                       for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
+                                      'nose_contour', 'foundation')},
+        'lighting_gate': {'value': True, 'detection_confidence': .98},
+        'proposals': [],
+    }
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(answer)}}]})
+    provider = OpenAIProvider('fake', 'vision', 'gpt-image-2')
+    provider.client.close()
+    provider.client = httpx.Client(base_url='https://api.openai.com/v1/',
+                                   transport=httpx.MockTransport(handler))
+    try:
+        plan = provider.plan_techniques(image, MakeupStyle.DATE_NIGHT,
+                                        Detector().detect(image)[0])
+    finally:
+        provider.close()
+    assert [item['technique_id'] for item in plan.selected[:5]] == [
+        'eyeliner_02', 'eyeshadow_02', 'brow_06', 'lips_01', 'blush_01']
+    assert all(item['selection_basis'] == 'style_recipe' for item in plan.selected[:5])
+    assert [item['intensity'] for item in plan.selected[:2]] == [.68, .62]
+    assert plan.selected[3]['color_delta']['delta_chroma'] == .035
+    prompt = json.loads(requests[0].content)['messages'][0]['content']
+    assert 'local selector directly adds the core style recipe' in prompt
+    assert 'style-led flow, not the generic Auto defect-correction flow' in prompt
+    assert 'Never propose an unlisted generic correction' in prompt
+
+
 def test_small_photo_uses_same_input_and_output_canvas_with_protected_padding():
     original = Image.new('RGB', (788, 524), (60, 70, 80))
     mask = Image.new('L', original.size, 0)

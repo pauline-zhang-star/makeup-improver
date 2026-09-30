@@ -35,8 +35,8 @@ STYLE_BASELINE_PRIORITY = (
 )
 STYLE_BASELINE_FALLBACKS = {'brow_06', 'lips_02'}
 
-# Style ranks suitable techniques; it does not make an invisible feature or an
-# unsafe color edit eligible. Auto deliberately retains its existing ranking.
+# Optional techniques are curated for each named style. They never broaden a
+# named look with arbitrary measurement matches from the Auto flow.
 STYLE_TECHNIQUE_PRIORITY = {
     MakeupStyle.AUTO: STYLE_BASELINE_PRIORITY,
     MakeupStyle.NATURAL: ('eyeshadow_07', 'brow_06', 'lips_01', 'lips_04', 'lips_02',
@@ -56,20 +56,25 @@ STYLE_TECHNIQUE_PRIORITY = {
                             'lips_01', 'brow_06', 'nose_02', 'foundation_02'),
 }
 
-# Reserve the visual signature of a selected named style before filling the
-# remaining slots with other suitable proposals. Each entry still has to pass
-# the ordinary visibility, confidence, trigger, color-cap, and conflict gates.
+# Named styles define the recipe before generic measurement-based fillers.
+# Measurements still gate visibility, confidence, color caps and geometry.
 STYLE_SIGNATURE_PRIORITY = {
-    MakeupStyle.NATURAL: ('lips_01',),
-    MakeupStyle.FRESH: ('blush_01', 'lips_01'),
-    MakeupStyle.DATE_NIGHT: ('eyeliner_05', 'eyeshadow_07', 'lips_01'),
-    MakeupStyle.SOPHISTICATED: ('brow_06', 'eyeliner_05', 'lips_01'),
-    MakeupStyle.SOFT_GLAM: ('eyeshadow_07', 'eyeliner_05', 'lips_01', 'blush_01'),
+    MakeupStyle.NATURAL: ('eyeshadow_07', 'brow_06', 'eyeliner_05', 'lips_01'),
+    MakeupStyle.WORK: ('brow_06', 'eyeliner_05', 'eyeshadow_07', 'lips_01'),
+    MakeupStyle.KOREAN_SOFT: ('eyeshadow_07', 'blush_01', 'eyeliner_05', 'lips_01'),
+    MakeupStyle.FRESH: ('blush_01', 'lips_01', 'eyeshadow_07', 'eyeliner_05'),
+    MakeupStyle.DATE_NIGHT: ('eyeliner_02', 'eyeshadow_02', 'brow_06', 'lips_01', 'blush_01'),
+    MakeupStyle.SOPHISTICATED: ('brow_06', 'eyeliner_05', 'eyeshadow_07', 'lips_01'),
+    MakeupStyle.SOFT_GLAM: ('eyeshadow_02', 'eyeliner_05', 'blush_01', 'lips_01'),
 }
 
-# Experimental, style-specific applicability thresholds. A style can broaden
-# a trigger only modestly; visibility, confidence, lighting and delta caps
-# remain mandatory. Thresholds are copied into the output plan for calibration.
+STYLE_PROVISIONAL_TECHNIQUE_INTENSITY = {
+    MakeupStyle.DATE_NIGHT: {'eyeliner_02': .68, 'eyeshadow_02': .62},
+    MakeupStyle.SOFT_GLAM: {'eyeshadow_02': .58},
+}
+
+# Experimental thresholds only select additional corrective techniques.
+# They do not decide whether a named style's signature recipe is eligible.
 STYLE_TRIGGER_OVERRIDES = {
     MakeupStyle.NATURAL: {
         'lips_04': {'lip_chroma_dominance_score': {'above_threshold': .80}},
@@ -221,7 +226,7 @@ class TechniqueCatalog:
         return STYLE_TRIGGER_OVERRIDES.get(style, {})
 
     def _validate(self):
-        if self.data.get('table_version') != '1.4':
+        if self.data.get('table_version') != '1.6':
             raise SpikeError('CONFIGURATION_ERROR', 'Unsupported technique table version.')
         source_cap = self.data['global_rules']['max_total_suggestions_per_job']
         if source_cap != MAX_SELECTED_TECHNIQUES:
@@ -241,7 +246,7 @@ class TechniqueCatalog:
             for entry in data.get('excluded', []):
                 if entry['excluded_id'] in self.entries:
                     raise SpikeError('CONFIGURATION_ERROR', 'Excluded technique is active.')
-        for style_name, fallbacks in self.data.get('style_color_fallbacks', {}).items():
+        for style_name, fallbacks in self.data.get('style_color_recipe_fallbacks', {}).items():
             try:
                 MakeupStyle(style_name)
             except ValueError as exc:
@@ -321,9 +326,9 @@ class TechniqueCatalog:
     def complete_placement_proposals(self, analysis, style=MakeupStyle.AUTO):
         """Complete safe proposals from measurements when vision omits candidates.
 
-        Placement entries use conservative catalog intensities. A small named-
-        style color delta may also be supplied for a measured trigger. The normal
-        visibility, confidence, threshold, color-cap, and conflict gates still run.
+        A selected named style supplies its signature techniques. Photo evidence
+        determines whether regions are visible and safe; defect thresholds do
+        not suppress style-recipe placement or color techniques.
         """
         style = MakeupStyle(style or MakeupStyle.AUTO)
         analysis = TechniqueAnalysis.model_validate(analysis).model_copy(deep=True)
@@ -335,23 +340,29 @@ class TechniqueCatalog:
             analysis.proposals.append(TechniqueProposal(
                 technique_id=technique_id,
                 intensity=PROVISIONAL_TECHNIQUE_INTENSITY.get(
-                    technique_id, PROVISIONAL_PLACEMENT_INTENSITY[region])))
-        # Do not let a vision model omit a style-signature color technique when
-        # the measured trigger and anatomical visibility both support it.
-        style_color_fallbacks = self.data.get('style_color_fallbacks', {})
+                    technique_id,
+                    STYLE_PROVISIONAL_TECHNIQUE_INTENSITY.get(style, {}).get(
+                        technique_id, PROVISIONAL_PLACEMENT_INTENSITY[region]))))
+        style_intensities = STYLE_PROVISIONAL_TECHNIQUE_INTENSITY.get(style, {})
+        for proposal in analysis.proposals:
+            if proposal.technique_id in style_intensities:
+                proposal.intensity = style_intensities[proposal.technique_id]
+        # A named style owns its recipe. Add its relative color technique when
+        # the feature is confidently visible; it need not be a measured defect.
+        style_color_fallbacks = self.data.get('style_color_recipe_fallbacks', {})
         for technique_id, delta in style_color_fallbacks.get(style.value, {}).items():
-            if technique_id in proposed:
-                continue
             region, entry = self.entries[technique_id]
             visible = analysis.visibility.get(region)
             if (visible is None or visible.value is not True or
                     visible.detection_confidence < MIN_CONFIDENCE):
                 continue
-            overrides = STYLE_TRIGGER_OVERRIDES.get(style, {}).get(technique_id, {})
-            if self._check(entry['trigger'], analysis, overrides) is None:
-                continue
-            analysis.proposals.append(TechniqueProposal(
-                technique_id=technique_id, color_delta=ColorDelta(**delta)))
+            recipe_proposal = TechniqueProposal(technique_id=technique_id,
+                                                color_delta=ColorDelta(**delta))
+            if technique_id in proposed:
+                analysis.proposals = [item for item in analysis.proposals
+                                      if item.technique_id != technique_id]
+            analysis.proposals.append(recipe_proposal)
+            proposed.add(technique_id)
         return analysis
 
     def select(self, analysis, style=MakeupStyle.AUTO):
@@ -370,6 +381,7 @@ class TechniqueCatalog:
             item = self.entries.get(proposal.technique_id)
             if item is None:
                 continue
+            technique_id = proposal.technique_id
             region, entry = item
             if entry.get('enabled') is False:
                 continue
@@ -377,6 +389,7 @@ class TechniqueCatalog:
             if visible is None or visible.value is not True or visible.detection_confidence < MIN_CONFIDENCE:
                 continue
             baseline_styles = entry.get('style_baseline_styles')
+            recipe = (technique_id in STYLE_SIGNATURE_PRIORITY.get(style, ()))
             baseline = bool(entry.get('style_baseline')) or (
                 baseline_styles is not None and style.value in baseline_styles)
             fallback = (proposal.technique_id in STYLE_BASELINE_FALLBACKS and
@@ -384,10 +397,10 @@ class TechniqueCatalog:
             # A fallback remains a measured technique when its own trigger is
             # satisfied.  It becomes a visibility-only baseline only when the
             # trigger is unavailable, so strong evidence keeps its ranking.
-            measured_evidence = (None if baseline else
+            measured_evidence = (None if baseline or recipe else
                                  self._check(entry['trigger'], analysis,
                                              threshold_overrides.get(proposal.technique_id)))
-            if baseline or (fallback and measured_evidence is None):
+            if baseline or recipe or (fallback and measured_evidence is None):
                 evidence = [dict(feature='anatomical_region_visible', measured_value=True,
                                  threshold_used=MIN_CONFIDENCE, comparator='true',
                                  detection_confidence=visible.detection_confidence)]
@@ -422,12 +435,13 @@ class TechniqueCatalog:
                       'adjustment_type': entry['adjustment_type'],
                       'technique': entry['technique'],
                       'instruction': entry['instruction_template'],
-                      'selection_basis': ('style_baseline'
+                      'selection_basis': ('style_recipe' if recipe else
+                                          'style_baseline'
                                           if (baseline or (fallback and measured_evidence is None))
                                           else 'measured_trigger'),
                       'evidence': evidence, 'detection_confidence': confidence,
                       **strength, 'target_side': proposal.target_side}
-            if baseline or (fallback and measured_evidence is None):
+            if baseline or recipe or (fallback and measured_evidence is None):
                 baseline_eligible[proposal.technique_id] = result
             else:
                 eligible.append((confidence, proposal.technique_id, result))
@@ -454,16 +468,15 @@ class TechniqueCatalog:
         ranked = sorted(eligible, key=lambda row: (-row[0], row[1]))
         eligible_by_id = {technique_id: result for _, technique_id, result in ranked}
 
-        # Named style preferences choose which suitable edits lead the plan.
-        # The original Auto confidence-first ordering remains unchanged.
+        # Auto ranks measured opportunities. Named styles follow only their
+        # style recipe and curated style-specific options.
         if style == MakeupStyle.AUTO:
             for _, technique_id, result in ranked:
                 if result['region'] not in {item['region'] for item in selected}:
                     add_result(technique_id, result)
         else:
-            # Keep signature regions when candidates are safely available;
-            # this prevents generic fillers (for example nose/base makeup)
-            # from displacing the selected style's defining eye/lip changes.
+            # Measurements gate visibility and safety; they do not substitute
+            # generic corrective edits for a named style's intended look.
             for technique_id in STYLE_SIGNATURE_PRIORITY.get(style, ()):
                 result = (eligible_by_id.get(technique_id) or
                           baseline_eligible.get(technique_id))
@@ -473,9 +486,6 @@ class TechniqueCatalog:
                 result = eligible_by_id.get(technique_id)
                 if result is not None and result['region'] not in {
                         item['region'] for item in selected}:
-                    add_result(technique_id, result)
-            for _, technique_id, result in ranked:
-                if result['region'] not in {item['region'] for item in selected}:
                     add_result(technique_id, result)
 
         # Fill toward four distinct regions with visible-only styling options
@@ -489,8 +499,9 @@ class TechniqueCatalog:
                     or len(selected) >= self.max_suggestions):
                 continue
             add_result(technique_id, result)
-        for _, technique_id, result in ranked:
-            add_result(technique_id, result)
+        if style == MakeupStyle.AUTO:
+            for _, technique_id, result in ranked:
+                add_result(technique_id, result)
         return TechniquePlan(catalog_version=self.data['table_version'],
                              threshold_status='experimental_not_calibrated',
                              measurement_source='vision_estimate_with_local_geometry',

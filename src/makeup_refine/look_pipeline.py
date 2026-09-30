@@ -12,7 +12,8 @@ from .look_composite import composite_complexion_base, preserve_complexion_textu
 from .landmarks import validate_face, LIPS, INNER_LIPS
 from .lip_blend import blend_full_lips
 from .technique_catalog import (TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGION_TARGET,
-                                STYLE_TECHNIQUE_PRIORITY, STYLE_TRIGGER_OVERRIDES)
+                                STYLE_SIGNATURE_PRIORITY, STYLE_TECHNIQUE_PRIORITY,
+                                STYLE_TRIGGER_OVERRIDES)
 from PIL import Image
 from .models import SpikeError
 from .preflight import check_face
@@ -126,7 +127,8 @@ class LookPipeline:
             self.on_plan(plan)
         plan_report = {'techniquePlan': plan.model_dump(),
                        'selectedTechniques': [item['technique_id'] for item in plan.selected],
-                       'styleTechniquePreference': list(STYLE_TECHNIQUE_PRIORITY[style]),
+                       'styleTechniqueRecipe': list(STYLE_SIGNATURE_PRIORITY.get(style, ())),
+                       'styleOptionalTechniques': list(STYLE_TECHNIQUE_PRIORITY[style]),
                        'styleTriggerOverrides': STYLE_TRIGGER_OVERRIDES.get(style, {}),
                        'plannedDistinctRegionsTarget': PLANNED_REGION_TARGET,
                        'plannedTargetMet': len({item['region'] for item in plan.selected}) >= PLANNED_REGION_TARGET,

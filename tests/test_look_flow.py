@@ -831,3 +831,21 @@ def test_recompose_cli_is_local_and_does_not_reuse_steps(tmp_path, image, monkey
     assert result['legacyFullStyleMaskFallback'] is True
     assert (output / 'enhancedImage.png').exists() and (output / 'review.html').exists()
     assert json.loads((source / 'result.json').read_text())['steps'] == [step()]
+
+
+@pytest.mark.parametrize('issue', ['mouth_state', 'teeth_visibility'])
+def test_mouth_preservation_issue_rejects_result(image, issue):
+    provider = Provider(issues=[issue])
+    _, result = LookPipeline(provider, provider, Detector()).run(image)
+    assert result['status'] == 'rejected'
+    assert result['steps'] == []
+    assert issue in result['preservationIssues']
+
+def test_mouth_state_constraints_in_generation_and_comparison_prompts():
+    from makeup_refine.look_prompts import enhancement_prompt, comparison_prompt
+    prompt = enhancement_prompt(MakeupStyle.AUTO)
+    assert 'NEVER part the lips' in prompt
+    assert 'keep those teeth visible' in prompt
+    comparison = comparison_prompt()
+    assert 'originally visible teeth disappear' in comparison
+    assert 'mouth_state' in comparison and 'teeth_visibility' in comparison

@@ -132,3 +132,23 @@ def test_nose_bridge_is_editable_without_circular_nose_skin_holes():
     assert mask[round(.47 * image.height), round(.46 * image.width)] > 0
     assert mask[round(.60 * image.height), round(.42 * image.width)] > 0
     assert mask[round(.60 * image.height), round(.51 * image.width)] > 0
+
+
+@pytest.mark.parametrize('residual, accepted', [(.014, True), (.016, False)])
+def test_registration_residual_limit_is_point_zero_one_five(residual, accepted):
+    original = Image.new('RGB', (512, 512), (100, 100, 100))
+    reference = np.asarray(Detector().detect(original)[0])
+    found = reference.copy()
+    # A non-fit point isolates local residual from the fitted global transform.
+    index = next(i for i in range(len(found)) if i not in STABLE_ANCHORS)
+    found[index, 0] += residual
+    def run():
+        return register_direct_candidate(original, original.copy(), reference,
+            LandmarkSequence(found.tolist()), Image.new('L', original.size))
+    if accepted:
+        _, report = run()
+        assert report['maxLandmarkResidualAllowed'] == .015
+        assert report['landmarkResidualAfterFit'] == pytest.approx(residual)
+    else:
+        with pytest.raises(SpikeError, match='uniform camera transform'):
+            run()

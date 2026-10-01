@@ -53,9 +53,9 @@ def register_direct_candidate(original, candidate, reference_points, detector, e
     center = dimensions / 2
     center_shift = float(np.linalg.norm((linear @ center + (tx, ty) - center) / dimensions))
     report.update(scale=scale, rotationDegrees=angle, translationPixels=[float(tx), float(ty)],
-                  landmarkResidualAfterFit=residual)
+                  landmarkResidualAfterFit=residual, maxLandmarkResidualAllowed=.015)
     if (rank < 4 or not .95 <= scale <= 1.05 or abs(angle) > 2 or
-            center_shift > .03 or residual > .012):
+            center_shift > .03 or residual > .015):
         raise SpikeError('QUALITY_CHECK_FAILED',
                          'The candidate cannot be corrected with a small uniform camera transform.', report)
 

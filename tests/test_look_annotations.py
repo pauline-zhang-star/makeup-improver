@@ -77,3 +77,16 @@ def test_stroke_stops_before_any_protected_feature_not_only_target():
     tip = short_arrow((.2, .4), (.6, .4), (768, 1024), [[.35, .3, .45, .5]])
     assert tip[0] < .35 * 768
     assert short_arrow((.4, .4), (.6, .4), (768, 1024), [[.35, .3, .45, .5]]) is None
+
+
+def test_rejected_trial_shows_plan_arrows_with_matching_labels_not_observed_steps():
+    r = report([])
+    r.update(status='failed', candidateImage='candidate.png', techniquePlan={'selected': [
+        {'technique_id': 'brow_08', 'region': 'brows', 'application': 'Draw soft hair strokes.'},
+        {'technique_id': 'lips_03', 'region': 'lips', 'application': 'Adjust lip hue.'}]})
+    arrows = after_annotations_html(r, (768, 1024))
+    text = look_steps_html(r)
+    assert re.findall(r'data-callout="(\d+)"', arrows) == ['1', '2']
+    assert re.findall(r'id="look-step-(\d+)"', text) == ['1', '2']
+    assert '尚未确认生成效果' in text
+    assert not r['steps']

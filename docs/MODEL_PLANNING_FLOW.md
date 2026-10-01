@@ -103,3 +103,44 @@ is displayed in the test report. Historical files are not silently rewritten.
 These checks enforce reported consistency, not independent visual truth, beauty,
 or proof of adherence by the image generator. Generation and final comparison
 remain necessary. No live API validation is implied by the local regression tests.
+
+### Pixel geometry recheck (2026-10-01)
+
+Facial widths no longer use external eye-corner span as denominator. Paired
+landmarks are converted to actual image pixels and aligned using one global
+similarity fit on forehead/face-outline anchors, excluding brows, eyelids,
+nostrils and lips. This changes measurement coordinates, never image pixels.
+Central lid pairs are projected onto the original eye's normal; corners are
+excluded. Values are now named `*Pixels`, with units and alignment stored in the
+report. Historical ratio records are retained without reinterpretation.
+
+Exact unchanged pixel support around both detected positions overrides apparent
+landmark displacement for that measurement. Raw readings and crop boxes are
+retained. Changed pixels do not prove changed anatomy. At-most-one-pixel
+violations are labeled measurement uncertainty and still held for review; this
+is a provisional diagnostic label, not permission to shrink eyes. Thresholds
+for actual size change remain unchanged. This is still landmark-based, not
+independent eyelid/iris segmentation, and face-outline anchors can also drift.
+
+Cosmetic mouth width is diagnostic only (user-approved policy): lipstick and
+liner may widen or narrow the perceived outline within the selected mask and
+technique. Mouth-width values do not reject or request review. Mouth opening,
+teeth visibility, expression, and other geometry checks remain protected.
+
+### Input detail and compositing boundaries (2026-10-01)
+
+Before paid planning, local eye/lip crops are downsampled (never upsampled) to
+at most 160x80 and lightly smoothed before measuring Laplacian variance. Two
+weak regions reject the input with a retake message. Initial experimental
+floors: eyes 120, lips 35; these are not population-calibrated and may confuse
+low contrast with blur. This does not independently detect beauty filters or
+hair occlusion. Diagnostics expose all crop boxes, scores and thresholds.
+The current IMG_0993 fails; IMG_7706 passes the local replay. More varied inputs
+are needed for calibration, especially near the threshold.
+
+The experimental inward-smoothstep compositor has been withdrawn after visual
+review. Production again uses the preceding edge_safe_color_matched_composite
+implementation. Input-detail rejection remains enabled before paid planning;
+it returns an IMAGE_BLURRY error, inputRejected=true, retryAction=upload_clearer_photo,
+and a user-facing retake message. Historical diagnostic images from the withdrawn
+algorithm remain artifacts, not approved results. No previous test image is overwritten.

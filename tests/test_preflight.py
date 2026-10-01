@@ -103,3 +103,14 @@ def test_report_escapes_provider_text_and_stays_offline(tmp_path):
     assert "connect-src 'none'" in html
     assert 'type="range"' in html
     assert "fetch(" not in html
+
+
+def test_face_detail_screen_ignores_detailed_background():
+    from makeup_refine.preflight import face_detail_metrics
+    from PIL import ImageFilter
+    image = Image.fromarray(np.random.default_rng(4).integers(0,255,(512,512,3),dtype=np.uint8))
+    points = feature_points()
+    assert not face_detail_metrics(image, points)['rejected']
+    soft = image.filter(ImageFilter.GaussianBlur(10))
+    image.paste(soft.crop((130,140,390,400)),(130,140))
+    assert face_detail_metrics(image, points)['rejected']

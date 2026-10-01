@@ -65,21 +65,98 @@ def validate_candidate_geometry(candidate, original, points, detector):
     return maximum
 
 
+# Forehead and face-outline anchors, excluding eyelids, brows, nostrils and lips.
+PROPORTION_ANCHORS = (10, 151, 127, 356, 234, 454, 152, 172, 397)
+# Central lid pairs exclude both canthi, where eyeliner most affects localization.
+APERTURE_PAIRS = (((160, 144), (159, 145), (158, 153)),
+                  ((385, 380), (386, 374), (387, 373)))
+
+
+def _pixel_metrics(points, axes=None):
+    axes = [] if axes is None else axes
+    openings = []
+    for index, pairs in enumerate(APERTURE_PAIRS):
+        upper = np.asarray([points[a] for a, _ in pairs])
+        lower = np.asarray([points[b] for _, b in pairs])
+        if len(axes) <= index:
+            # Use the ORIGINAL central lid midline, not a candidate eyeliner wing.
+            tangent = (upper[-1] + lower[-1]) - (upper[0] + lower[0])
+            length = np.linalg.norm(tangent)
+            normal = np.array([-tangent[1], tangent[0]]) / length if length > 1e-8 else np.array([0., 1.])
+            if normal[1] < 0:
+                normal = -normal
+            axes.append(normal)
+        openings.append(float(np.mean((lower - upper) @ axes[index])))
+    return {'leftEyeOpeningPixels': openings[0], 'rightEyeOpeningPixels': openings[1],
+            'noseWidthPixels': float(np.linalg.norm(points[98] - points[327])),
+            'mouthWidthPixels': float(np.linalg.norm(points[61] - points[291]))}, axes
+
+
 def facial_proportion_metrics(image, detector):
-    """Return appearance ratios that a landmark-position check cannot catch."""
-    points = np.asarray(validate_face(detector.detect(image)), dtype=float)
-    eye_span = float(np.linalg.norm(points[263] - points[33]))
-    if eye_span <= 1e-6:
-        raise SpikeError('FEATURES_NOT_VISIBLE', 'Could not measure the eyes reliably.')
-    eye_opening = []
-    for upper, lower in zip(UPPER_EYES, LOWER_EYES):
-        eye_opening.append(float(np.mean(points[lower, 1]) - np.mean(points[upper, 1])))
-    return {
-        'leftEyeOpeningRatio': eye_opening[0] / eye_span,
-        'rightEyeOpeningRatio': eye_opening[1] / eye_span,
-        'noseWidthRatio': float(np.linalg.norm(points[98] - points[327]) / eye_span),
-        'mouthWidthRatio': float(np.linalg.norm(points[61] - points[291]) / eye_span),
-    }
+    points = np.asarray(validate_face(detector.detect(image)), dtype=float) * image.size
+    return _pixel_metrics(points)[0]
+
+
+def paired_facial_metrics(original, candidate, detector):
+    if original.size != candidate.size:
+        raise SpikeError('QUALITY_CHECK_FAILED', 'Image dimensions changed.')
+    before = np.asarray(validate_face(detector.detect(original)), dtype=float) * original.size
+    after = np.asarray(validate_face(detector.detect(candidate)), dtype=float) * original.size
+    source, target = after[list(PROPORTION_ANCHORS)], before[list(PROPORTION_ANCHORS)]
+    # One global similarity fit. No per-feature warping and no modified image pixels.
+    design = np.zeros((len(source) * 2, 4))
+    design[0::2, 0], design[0::2, 1], design[0::2, 2] = source[:, 0], -source[:, 1], 1
+    design[1::2, 0], design[1::2, 1], design[1::2, 3] = source[:, 1], source[:, 0], 1
+    if np.array_equal(source, target):
+        a, b, tx, ty = 1., 0., 0., 0.
+    else:
+        params, _, rank, _ = np.linalg.lstsq(design, target.ravel(), rcond=None)
+        if rank < 4:
+            raise SpikeError('QUALITY_CHECK_FAILED', 'Insufficient stable anchors; geometry needs review.')
+        a, b, tx, ty = params
+    linear = np.array([[a, -b], [b, a]])
+    aligned = after @ linear.T + (tx, ty)
+    residual = float(np.max(np.linalg.norm(aligned[list(PROPORTION_ANCHORS)] - target, axis=1)))
+    scale = float(np.hypot(a, b))
+    angle = float(np.degrees(np.arctan2(b, a)))
+    audit = {'method': 'stable_outline_similarity_pixel_measurement_v2', 'units': 'original_image_pixels',
+             'anchorIndices': list(PROPORTION_ANCHORS), 'scale': scale, 'rotationDegrees': angle,
+             'translationPixels': [float(tx), float(ty)], 'maxAnchorResidualPixels': residual,
+             'normalizationByEyeSpan': False, 'independentEyeSegmentation': False,
+             'landmarkDetectionMayShiftWithMakeup': True}
+    center = np.asarray(original.size) / 2
+    center_shift = float(np.linalg.norm((linear @ center + (tx, ty) - center) / original.size))
+    audit['centerShiftFraction'] = center_shift
+    if not .95 <= scale <= 1.05 or abs(angle) > 2 or center_shift > .03 or residual > .01 * min(original.size):
+        raise SpikeError('QUALITY_CHECK_FAILED', 'Stable-anchor alignment is uncertain; geometry needs review.',
+                         {'measurementAlignment': audit})
+    first, axes = _pixel_metrics(before)
+    second, _ = _pixel_metrics(aligned, axes)
+    # If identical local pixels surround both detected positions, a detector shift
+    # is not evidence of edited anatomy. Check before any mathematical alignment.
+    groups = {'noseWidthPixels': (98, 327), 'mouthWidthPixels': (61, 291),
+              'leftEyeOpeningPixels': tuple(i for pair in APERTURE_PAIRS[0] for i in pair),
+              'rightEyeOpeningPixels': tuple(i for pair in APERTURE_PAIRS[1] for i in pair)}
+    original_pixels, candidate_pixels = np.asarray(original), np.asarray(candidate)
+    audit['localPixelEvidence'] = {}
+    audit['rawMeasuredAfterPixels'] = dict(second)
+    for key, indices in groups.items():
+        support = np.concatenate([before[list(indices)], after[list(indices)]])
+        low = np.maximum(0, np.floor(support.min(axis=0) - 8)).astype(int)
+        high = np.minimum(original.size, np.ceil(support.max(axis=0) + 8)).astype(int)
+        x0, y0 = low; x1, y1 = high
+        unchanged = (x1 > x0 and y1 > y0 and np.array_equal(
+            original_pixels[y0:y1, x0:x1], candidate_pixels[y0:y1, x0:x1]))
+        audit['localPixelEvidence'][key] = {'box': [int(x0), int(y0), int(x1), int(y1)],
+                                          'exactlyUnchanged': bool(unchanged)}
+        if unchanged:
+            second[key] = first[key]
+    audit['eyeNormalVectors'] = [axis.tolist() for axis in axes]
+    audit['measurementPointsBefore'] = {str(i): before[i].tolist() for i in
+        sorted({98, 327, 61, 291} | {i for eye in APERTURE_PAIRS for pair in eye for i in pair})}
+    audit['measurementPointsAfter'] = {str(i): aligned[i].tolist() for i in
+        sorted({98, 327, 61, 291} | {i for eye in APERTURE_PAIRS for pair in eye for i in pair})}
+    return first, second, audit
 
 
 EYE_OPENING_RELATIVE_LIMIT = .06
@@ -97,26 +174,25 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
     Eyeliner and double-eyelid makeup can change the measured eyelid opening a
     little without moving the eye or changing facial anatomy. Auto keeps the
     aperture increase to 6%; a named style may use up to 8% for a more visible
-    cosmetic treatment, but may never decrease either eye. All other facial
-    proportions remain at the supplied (normally 5%) limit in both modes.
+    cosmetic treatment, but may never decrease either eye. Nose width remains at the supplied (normally 5%) limit in both modes. Mouth width is diagnostic only.
     """
     style_value = getattr(style, 'value', style)
     styled = style_value not in (None, 'Auto')
     eye_opening_limit = (STYLED_EYE_OPENING_RELATIVE_LIMIT if styled
                          else EYE_OPENING_RELATIVE_LIMIT)
-    before = facial_proportion_metrics(original, detector)
-    after = facial_proportion_metrics(candidate, detector)
-    changes = {key: float((after[key] - before[key]) / max(abs(before[key]), 1e-6))
+    before, after, measurement_alignment = paired_facial_metrics(original, candidate, detector)
+    changes = {key: (0.0 if abs(after[key] - before[key]) < 1e-7 else
+                    float((after[key] - before[key]) / max(abs(before[key]), 1e-6)))
                for key in before}
     limits = {key: (EYE_OPENING_RELATIVE_LIMIT if key in {
-                       'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
+                       'leftEyeOpeningPixels', 'rightEyeOpeningPixels'}
                     else max_relative_change)
-              for key in changes}
-    for key in ('leftEyeOpeningRatio', 'rightEyeOpeningRatio'):
+              for key in changes if key != 'mouthWidthPixels'}
+    for key in ('leftEyeOpeningPixels', 'rightEyeOpeningPixels'):
         limits[key] = eye_opening_limit
     magnitude_violations = [key for key, change in changes.items()
-                            if abs(change) > limits[key]]
-    eye_opening_keys = {'leftEyeOpeningRatio', 'rightEyeOpeningRatio'}
+                            if key in limits and abs(change) > limits[key]]
+    eye_opening_keys = {'leftEyeOpeningPixels', 'rightEyeOpeningPixels'}
     # Cosmetic eyeliner or eyelid makeup may leave the aperture unchanged or
     # make it look slightly more open, but it must never make either eye look
     # more closed. This directional rule is separate from the magnitude cap.
@@ -125,9 +201,13 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
         if changes[key] < EYE_OPENING_MIN_RELATIVE_CHANGE
     ]
     violations = sorted(set(magnitude_violations + eye_opening_decrease_violations))
-    reported = max(violations or changes,
+    reported = max(violations or limits,
                    key=lambda key: abs(changes[key]) / max(limits[key], 1e-6))
-    report = {'facialProportionsBefore': before, 'facialProportionsAfter': after,
+    report = {'measurementAlignment': measurement_alignment,
+              'measurementUnits': 'pixels',
+              'diagnosticOnlyMeasurements': ['mouthWidthPixels'],
+              'mouthWidthPolicy': 'Cosmetic lip width is not a rejection or review criterion.',
+              'facialProportionsBefore': before, 'facialProportionsAfter': after,
               'facialProportionRelativeChanges': changes,
               'maxFacialProportionChange': abs(changes[reported]),
               'maxFacialProportionChangeAllowed': limits[reported],
@@ -136,6 +216,8 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
               'eyeOpeningDirection': 'non_decreasing',
               'eyeOpeningDecreaseViolations': eye_opening_decrease_violations}
     if violations:
+        pixel_change = abs(after[reported] - before[reported])
+        report['measurementNeedsReview'] = pixel_change <= 1.0
         if reported in eye_opening_decrease_violations:
             message = ('The generated image reduced eye opening '
                        f"({reported} changed {changes[reported]:+.1%}; "
@@ -144,6 +226,8 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
             message = ('The generated image changed facial feature proportions '
                        f"({reported} changed {changes[reported]:+.1%}; "
                        f"limit {limits[reported]:.1%}).")
+        if report['measurementNeedsReview']:
+            message += ' Difference is at most one pixel; landmark uncertainty requires review, not a confirmed anatomical change.'
         raise SpikeError('QUALITY_CHECK_FAILED', message, report)
     return report
 

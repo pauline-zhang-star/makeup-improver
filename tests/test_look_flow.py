@@ -167,18 +167,18 @@ def test_noop_generation_fails_selected_region_visibility_check(image):
 def test_named_style_allows_a_little_more_cosmetic_eye_opening(monkeypatch):
     from makeup_refine import quality
 
-    before = {'leftEyeOpeningRatio': .20, 'rightEyeOpeningRatio': .20,
-              'noseWidthRatio': .50, 'mouthWidthRatio': .60}
-    after = {'leftEyeOpeningRatio': .214, 'rightEyeOpeningRatio': .20,
-             'noseWidthRatio': .50, 'mouthWidthRatio': .60}
+    before = {'leftEyeOpeningPixels': .20, 'rightEyeOpeningPixels': .20,
+              'noseWidthPixels': .50, 'mouthWidthPixels': .60}
+    after = {'leftEyeOpeningPixels': .214, 'rightEyeOpeningPixels': .20,
+             'noseWidthPixels': .50, 'mouthWidthPixels': .60}
     values = iter((before, after))
-    monkeypatch.setattr(quality, 'facial_proportion_metrics',
-                        lambda image, detector: next(values))
+    monkeypatch.setattr(quality, 'paired_facial_metrics',
+                        lambda original, candidate, detector: (before, after, {}))
 
     report = quality.validate_facial_proportions(
         object(), object(), object(), style=MakeupStyle.KOREAN_SOFT)
     assert report['facialProportionMode'] == 'styled'
-    assert report['facialProportionLimits']['leftEyeOpeningRatio'] == .08
+    assert report['facialProportionLimits']['leftEyeOpeningPixels'] == .08
 
 
 def test_selected_style_does_not_open_full_face_mask_without_foundation(image):
@@ -770,13 +770,13 @@ def test_facial_proportions_reject_eye_reshaping():
 def test_facial_proportions_reject_eye_opening_decrease(monkeypatch):
     from makeup_refine import quality
 
-    before = {'leftEyeOpeningRatio': .20, 'rightEyeOpeningRatio': .20,
-              'noseWidthRatio': .50, 'mouthWidthRatio': .60}
-    after = {'leftEyeOpeningRatio': .20, 'rightEyeOpeningRatio': .198,
-             'noseWidthRatio': .50, 'mouthWidthRatio': .60}
+    before = {'leftEyeOpeningPixels': .20, 'rightEyeOpeningPixels': .20,
+              'noseWidthPixels': .50, 'mouthWidthPixels': .60}
+    after = {'leftEyeOpeningPixels': .20, 'rightEyeOpeningPixels': .198,
+             'noseWidthPixels': .50, 'mouthWidthPixels': .60}
     values = iter((before, after))
-    monkeypatch.setattr(quality, 'facial_proportion_metrics',
-                        lambda image, detector: next(values))
+    monkeypatch.setattr(quality, 'paired_facial_metrics',
+                        lambda original, candidate, detector: (before, after, {}))
 
     with pytest.raises(SpikeError, match='eye opening must not decrease'):
         quality.validate_facial_proportions(object(), object(), object())
@@ -852,3 +852,20 @@ def test_mouth_state_constraints_in_generation_and_comparison_prompts():
     comparison = comparison_prompt()
     assert 'originally visible teeth disappear' in comparison
     assert 'mouth_state' in comparison and 'teeth_visibility' in comparison
+
+
+
+def test_input_detail_rejection_stops_before_any_paid_call(image, monkeypatch):
+    from makeup_refine import preflight
+    from makeup_refine.look_view import look_steps_html
+    diagnostics = {'rejected': True, 'regions': [], 'thresholdsCalibrated': False}
+    monkeypatch.setattr(preflight, 'face_detail_metrics', lambda *args: diagnostics)
+    provider = Provider()
+    with pytest.raises(SpikeError) as failure:
+        LookPipeline(provider, provider, Detector()).run(image)
+    assert failure.value.code == 'IMAGE_BLURRY'
+    assert provider.calls == []
+    assert failure.value.details['inputRejected'] is True
+    assert failure.value.details['retryAction'] == 'upload_clearer_photo'
+    html = look_steps_html({'status': 'failed', 'message': failure.value.message})
+    assert '请上传对焦清晰' in html

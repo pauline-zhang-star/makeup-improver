@@ -68,13 +68,34 @@ def annotation_anchors(points):
     return anchors
 
 
+def planned_review_steps(report):
+    """Review-only plan labels, never claimed observed changes."""
+    if report.get('status') not in ('failed', 'rejected', 'candidate_rejected', 'instructions_unavailable'):
+        return []
+    if not (report.get('candidateImage') or report.get('alignedCandidateImage') or report.get('enhancedImage')):
+        return []
+    mapping = {'brows': 'eyebrows', 'foundation': 'complexion'}
+    grouped = {}
+    for item in (report.get('techniquePlan') or {}).get('selected', []):
+        area = mapping.get(item['region'], item['region'])
+        instruction = item.get('application') or item.get('instruction', '')
+        if area not in grouped:
+            grouped[area] = {'area': area, 'instruction': instruction, 'technique_id': item['technique_id']}
+        else:
+            grouped[area]['instruction'] += ' ' + instruction
+            grouped[area]['technique_id'] += ' + ' + item['technique_id']
+    return list(grouped.values())
+
+
+
 def after_annotations_html(report, size):
-    if report.get('status') != 'completed':
+    steps = report.get('steps', []) if report.get('status') == 'completed' else planned_review_steps(report)
+    if not steps:
         return ''
     anchors = report.get('annotationAnchors', {})
     w, h = size
     lines, badges = [], []
-    for number, step in enumerate(report.get('steps', []), 1):
+    for number, step in enumerate(steps, 1):
         anchor = anchors.get(step['area'])
         if not anchor:
             continue

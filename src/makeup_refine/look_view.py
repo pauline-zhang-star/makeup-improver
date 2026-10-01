@@ -1,5 +1,6 @@
 """Render observed steps, never the legacy fixed technique instructions."""
 from html import escape
+from .look_annotations import planned_review_steps
 
 
 def look_steps_html(report):
@@ -23,6 +24,14 @@ def look_steps_html(report):
                          + escape(step['instruction']) + '</p><details><summary>What changed</summary><p>Before: '
                          + escape(step['before']) + '</p><p>After: ' + escape(step['after']) + '</p></details></div></li>')
         body = '<ol class="look-steps">' + ''.join(cards) + '</ol>'
+    planned = planned_review_steps(report)
+    if planned:
+        body += '<h3>计划技法位置 · 尚未确认生成效果</h3><p>照片上的编号虚线对应以下计划操作；不是对生成结果的确认，也不是已验证的复现指导。</p><ol class="look-steps">'
+        for number, item in enumerate(planned, 1):
+            body += (f'<li id="look-step-{number}"><span class="step-number">{number}</span><div><strong>'
+                     + escape(item['area'] + ' · ' + item['technique_id']) + '</strong><p>'
+                     + escape(item['instruction']) + '</p></div></li>')
+        body += '</ol>'
     pending = report.get('pendingChangeReviews', [])
     if pending and status not in ('rejected', 'candidate_rejected', 'failed', 'instructions_unavailable'):
         body += '<h3>Changes needing confirmation / 待确认变化</h3><ul>'

@@ -15,7 +15,7 @@ from .technique_catalog import TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGI
 from PIL import Image
 from .comparison_evidence import build_comparison_evidence, unresolved_evidence
 from .models import SpikeError
-from .preflight import check_face
+from .preflight import check_face, face_detail_metrics
 from .quality import (validate_candidate_geometry, validate_facial_proportions,
                       validate_protected_pixels, region_metrics,
                       VisibilityThresholds)
@@ -131,7 +131,9 @@ class LookPipeline:
         plan = TechniquePlan.model_validate(self.editor.plan_techniques(original, style, points))
         if self.on_plan:
             self.on_plan(plan)
-        plan_report = {'techniquePlan': plan.model_dump(),
+        plan_report = {'inputQuality': face_detail_metrics(original, points),
+                       'annotationAnchors': annotation_anchors(points),
+                       'techniquePlan': plan.model_dump(),
                        'selectedTechniques': [item['technique_id'] for item in plan.selected],
                        'planningMode': plan.selection_method,
                        'lookDirection': plan.look_direction,
@@ -261,7 +263,7 @@ class LookPipeline:
                     self.on_attempt(record)
                 if attempt == self.max_edit_attempts:
                     raise SpikeError(exc.code, exc.message,
-                                     {'generationAttempts': attempts, 'imageEditCalls': attempt}) from exc
+                                     {**plan_report, 'generationAttempts': attempts, 'imageEditCalls': attempt}) from exc
                 continue
             record = {'attempt': attempt, 'status': 'passed', 'alignment': alignment, 'checks': checkpoints,
                       'maxLandmarkDeviation': deviation, **proportions, **preservation}

@@ -12,6 +12,8 @@ def trial_details_html(report, directory=None):
     body = '<section><h2>测试流程记录</h2><p>状态：' + escape(report['status']) + '</p>'
     if report.get('message'):
         body += '<p class="notice">' + escape(report['message']) + '</p>'
+    if report.get('inputQuality'):
+        body += details('上传照片局部细节检查（试验阈值）', report['inputQuality'])
     body += '<h3>1. 技法选择与依据</h3>'
     body += '<p>' + escape(plan.get('look_direction', '尚无已验证方案')) + '</p>'
     for item in plan.get('selected', []):
@@ -46,6 +48,8 @@ def trial_details_html(report, directory=None):
             if check.get('message'):
                 body += '<p>' + escape(check['message']) + '</p>'
         body += details('检查数值、偏移及所有诊断数据', attempt) + '</details>'
+    if report.get('localPixelGeometryRecheck'):
+        body += details('新像素测量本地复核（保留原始检查记录）', report['localPixelGeometryRecheck'])
     body += '<h3>5. 最终对比与操作指导核对</h3>'
     body += details('逐部位视觉判断', report.get('assessments', []))
     body += details('局部像素证据', report.get('comparisonEvidence'))

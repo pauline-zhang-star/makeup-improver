@@ -32,7 +32,7 @@ def write_report(path: Path, original: Image.Image, *, masks: dict[str, Image.Im
                      f'<figcaption>{escape(area.title())} · candidate mask</figcaption></figure>')
     compare = ""
     if result is not None:
-        annotations = after_annotations_html(look_result, result.size) if look_result and look_result.get('status') not in ('rejected', 'candidate_rejected', 'failed') else ''
+        annotations = after_annotations_html(look_result, result.size) if look_result else ''
         diagnostic = bool(look_result and (
             look_result.get('status') in ('candidate_rejected', 'rejected') or
             (look_result.get('enhancedImage') is None and

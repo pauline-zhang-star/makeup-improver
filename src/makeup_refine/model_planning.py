@@ -17,7 +17,52 @@ Region = Literal['eyeliner', 'eyeshadow', 'brows', 'lips', 'blush', 'nose_contou
 REGIONS = {'eyeliner', 'eyeshadow', 'brows', 'lips', 'blush', 'nose_contour', 'foundation'}
 
 
+class TechniqueEvidence(StrictModel):
+    """Model-reported observations; consistency checks are not independent visual proof."""
+    region: Region
+    current_state: Literal['bare', 'light_makeup', 'defined_makeup', 'balanced',
+                           'excess_product', 'uncertain']
+    pigment_source: Literal['natural_feature', 'applied_makeup', 'mixed', 'uncertain']
+    operation: Literal['enhance', 'reduce_product', 'adjust_color', 'adjust_placement', 'adjust_finish']
+    purpose: Literal['style_adaptation', 'correct_visible_issue']
+    confidence: float = Field(ge=0, le=1)
+    visual_cues: list[Literal['natural_color_visible', 'natural_texture_visible',
+        'visible_gaps', 'uneven_edge', 'color_relationship', 'placement_visible',
+        'finish_visible', 'solid_product_fill', 'product_buildup',
+        'product_outside_boundary']] = Field(max_length=6)
+    observation: str = Field(max_length=600)
+    target_effect: str = Field(max_length=600)
+    style_reason: str = Field(max_length=600)
+
+
+def technique_evidence_rejection(evidence, region, tid, delta):
+    if evidence is None:
+        return 'missing_technique_evidence'
+    if evidence.region != region:
+        return 'evidence_region_mismatch'
+    if evidence.current_state == 'uncertain' or evidence.confidence < MIN_CONFIDENCE:
+        return 'uncertain_technique_evidence'
+    if not evidence.visual_cues or not all(v.strip() for v in
+            (evidence.observation, evidence.target_effect, evidence.style_reason)):
+        return 'incomplete_technique_evidence'
+    product_cues = {'solid_product_fill', 'product_buildup', 'product_outside_boundary'}
+    if (evidence.current_state == 'bare' and evidence.pigment_source in ('applied_makeup', 'mixed')):
+        return 'contradictory_product_evidence'
+    # Validate the executable delta too: a hue technique must not bypass the reduction gate.
+    reduction = (tid in ('brow_02', 'lips_04') or evidence.operation == 'reduce_product' or
+                 (delta is not None and ((region == 'brows' and delta.delta_lightness > 0) or
+                                         (region == 'lips' and delta.delta_chroma < 0))))
+    if reduction:
+        if evidence.pigment_source not in ('applied_makeup', 'mixed'):
+            return 'reduction_requires_applied_product'
+        if evidence.current_state != 'excess_product' or not product_cues.intersection(evidence.visual_cues):
+            return 'reduction_requires_excess_product_evidence'
+    # Balanced makeup can be adapted to another style; bare features need no invented defect.
+    return None
+
+
 class ObservedTechnique(TechniqueProposal):
+    structured_evidence: Optional[TechniqueEvidence] = None
     observation: str = Field(min_length=1, max_length=600)
     style_reason: str = Field(min_length=1, max_length=600)
     application: str = Field(min_length=1, max_length=600)
@@ -78,6 +123,7 @@ class LookDesign(StrictModel):
     # Availability/reliability gates, not aesthetic scores.
     lighting_gate: Measurement
     color_references: dict[str, Measurement] = Field(default_factory=dict)
+    # Retained only to read/audit historical plans; never substitutes for per-proposal evidence.
     brow_makeup_evidence: Optional[BrowMakeupEvidence] = None
     proposals: list[Union[PlacementTechnique, ColorTechnique]] = Field(max_length=MAX_SELECTED_TECHNIQUES)
     preserved_areas: list[PreservedArea] = Field(default_factory=list, max_length=7)
@@ -158,7 +204,7 @@ def validate_design(design, catalog=None):
                     (tid == 'lips_04' and delta.delta_chroma >= 0))
                 if wrong_direction:
                     reason = 'color_direction_contradicts_technique'
-            if reason is None and tid == 'brow_02':
+            if reason is None and tid == 'brow_02' and proposal.structured_evidence is None:
                 reason = brow_softening_rejection(design.brow_makeup_evidence)
             if reason is None and entry.get('reference_color_source') == 'hair_detection':
                 if not reliable(design.color_references.get('hair')):
@@ -171,12 +217,15 @@ def validate_design(design, catalog=None):
                     reference = 'hair' if tid == 'brow_03' else 'iris' if tid == 'eyeshadow_06' else 'undertone'
                     if not reliable(design.color_references.get(reference)):
                         reason = 'unreliable_' + reference + '_color_reference'
+        if reason is None:
+            reason = technique_evidence_rejection(proposal.structured_evidence, region, tid, proposal.color_delta)
         validation_results.append({
             'proposal': proposal.model_dump(),
+            'structuredEvidence': proposal.structured_evidence.model_dump() if proposal.structured_evidence else None,
             'status': 'rejected' if reason else 'passed',
             'firstFailure': reason,
             'evaluation': ('Stops at first failure; subsequent conditions are not evaluated.' if reason else
-                           'All applicable catalog, preservation, visibility, duplicate/conflict, strength, nonzero-effect, color direction, brow product evidence (where applicable) and color-reference checks passed.'),
+                           'All applicable catalog, preservation, visibility, duplicate/conflict, strength, nonzero-effect, color direction, per-technique evidence and product reduction evidence and color-reference checks passed.'),
             'validatedStrength': strength if reason is None else None,
             'visibility': design.visibility[item[0]].model_dump() if item else None,
             'lighting': design.lighting_gate.model_dump(),
@@ -192,10 +241,11 @@ def validate_design(design, catalog=None):
             'adjustment_type': entry['adjustment_type'], 'instruction': entry['instruction_template'],
             'observation': proposal.observation, 'style_reason': proposal.style_reason,
             'application': proposal.application, 'target_side': proposal.target_side,
+            'structured_evidence': proposal.structured_evidence.model_dump(),
             'selection_basis': 'model_visual_reasoning',
             'detection_confidence': design.visibility[region].detection_confidence,
             **({'brow_makeup_evidence': design.brow_makeup_evidence.model_dump()}
-               if tid == 'brow_02' else {}),
+               if tid == 'brow_02' and design.brow_makeup_evidence else {}),
             'evidence': [{'source': 'model_visual_observation', 'observation': proposal.observation,
                           'style_reason': proposal.style_reason}], **strength})
     return TechniquePlan(
@@ -221,6 +271,7 @@ def planning_response_format(catalog=None):
     for name, kind in (('PlacementTechnique', 'placement'), ('ColorTechnique', 'color')):
         ids = [tid for tid, (_, entry) in catalog.entries.items()
                if entry.get('enabled', True) and entry['adjustment_type'] == kind]
+        schema['$defs'][name]['properties']['structured_evidence'] = {'$ref': '#/$defs/TechniqueEvidence'}
         schema['$defs'][name]['properties']['technique_id'] = {'type': 'string', 'enum': ids}
     def close_objects(node):
         if isinstance(node, dict):
@@ -266,17 +317,21 @@ def planning_prompt(style, catalog=None):
         'needs more pigment, less pigment, or no change to reach that target. If the input makeup is '
         'already heavy, soften areas that compete with the intended focus while retaining or adding '
         'definition where it supports the whole look; use only supported techniques. '
-        'Use brow_02 only for identifiable excess applied brow pigment, with the observation naming '
-        'the product-like excess and explaining why reduction is needed (positive delta_lightness). '
-        'If proposing brow_02, supply structured brow_makeup_evidence: pigment_source must be '
-        'applied_makeup, excess_applied_product true, confidence at least 0.85, and visual_cues must '
-        'identify solid_fill_between_hairs, product_buildup or drawn_edges_outside_hairs. Describe '
-        'the actual visible product in observation and why reducing it supports the requested style '
-        'in reason_to_reduce. This is evidence of product, not a beauty score. If these cues cannot '
-        'be seen, report natural_hair or uncertain truthfully and do not propose brow_02; never '
-        'invent excess product to satisfy the schema. Otherwise brow_makeup_evidence may be null. '
-        'Do not treat naturally dark brow hairs, visible brow edges or stronger eye makeup as sufficient '
-        'evidence for brow lightening. When makeup presence is uncertain, do not invent heavy product. '
+        'Every proposal must include non-null structured_evidence matching its anatomical region. '
+        'Separate anatomical visibility, current makeup state, and why a change serves the requested style. '
+        'Bare visible eyelids/cheeks/nose are visible=true even without liner, shadow, blush or contour. '
+        'Never mark an anatomical area unavailable merely because no cosmetic product is visible. '
+        'Report current_state, pigment_source, operation, purpose, concrete visual_cues, confidence, '
+        'observation, target_effect and style_reason honestly. Balanced or well-defined makeup may be '
+        'adapted to the requested style; no defect is required for style_adaptation. Bare features may '
+        'be enhanced without claiming excess product. If uncertain, do not invent evidence. '
+        'For any reduction of applied product, including brow lightening (even via brow_03) or lip '
+        'desaturation, require excess_product state, applied_makeup or mixed source, and concrete '
+        'solid_product_fill, product_buildup or product_outside_boundary evidence. Describe why it is '
+        'excessive for this target style. Natural pigmentation, hair darkness or shine alone is not '
+        'evidence of excessive makeup. brow_01 darkening is enhancement, NOT product reduction. '
+        'Use the per-proposal structured_evidence for brow_02 too; the legacy top-level '
+        'brow_makeup_evidence may be null. Do not report it instead of per-proposal evidence. '
         'Use lips_04 for overly '
         'saturated lipstick (negative delta_chroma) when justified by the photo and reliable references. '
         'Use brow_01 only when darker brows genuinely serve the target (negative delta_lightness). '

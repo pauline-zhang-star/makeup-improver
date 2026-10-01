@@ -18,6 +18,8 @@ def trial_details_html(report, directory=None):
         body += '<details open><summary>' + escape(item['technique_id'] + ' · ' + item['region']) + '</summary>'
         for label, key in [('原图观察', 'observation'), ('选择依据', 'style_reason'), ('计划操作', 'application')]:
             body += '<p>' + label + '：' + escape(item.get(key, '历史记录未提供')) + '</p>'
+        if item.get('structured_evidence'):
+            body += details('结构化依据（模型观察，不是独立视觉证明）', item['structured_evidence'])
         body += details('强度、相对色彩变化和完整技法数据', item) + '</details>'
     body += details('模型原始分析（不是已确认的图像变化）', report.get('techniqueAnalysis', '未记录或尚未完成'))
     body += '<h3>2. 技法合法性检查</h3>'

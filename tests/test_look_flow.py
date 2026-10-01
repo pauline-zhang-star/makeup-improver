@@ -1,3 +1,4 @@
+from test_model_planning import evidence as technique_evidence
 import base64
 from io import BytesIO
 import json
@@ -442,6 +443,7 @@ def test_provider_plans_from_original_before_any_edit(image):
                                       'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .98},
         'proposals': [{'technique_id': 'brow_04', 'intensity': .4,
+                       'structured_evidence': technique_evidence('brows'),
                        'observation': 'The outer brow has visible small gaps.',
                        'style_reason': 'A softly filled brow balances the existing lip makeup.',
                        'application': 'Fill only the gaps with fine strokes inside the current outline.'}],
@@ -474,7 +476,8 @@ def test_named_style_uses_model_proposals_without_recipe_or_score_replacement(im
                        for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
                                       'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .98},
-        'proposals': [{'technique_id': 'lips_01', 'color_delta': {
+        'proposals': [{'technique_id': 'lips_01',
+            'structured_evidence': technique_evidence('lips'), 'color_delta': {
             'color_space': 'OKLCH', 'delta_lightness': .005, 'delta_chroma': .021,
             'delta_hue_degrees': 0}, 'observation': 'Existing lip pigment is muted rose.',
             'style_reason': 'A richer rose lip supports the evening eye makeup already present.',

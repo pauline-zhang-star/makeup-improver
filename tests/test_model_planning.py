@@ -6,12 +6,24 @@ from makeup_refine.look_models import MakeupStyle
 from makeup_refine.technique_catalog import TechniqueCatalog
 
 
+def evidence(region='brows', **changes):
+    value = dict(region=region, current_state='bare', pigment_source='natural_feature',
+                 operation='enhance', purpose='style_adaptation', confidence=.95,
+                 visual_cues=['natural_color_visible'], observation='Natural pigment and edges are visible.',
+                 target_effect='More definition within the current outline.',
+                 style_reason='Coordinate definition with the requested look.')
+    value.update(changes)
+    return value
+
+
 def proposal(tid='brow_04', **kwargs):
     value = dict(technique_id=tid, intensity=.4,
                  observation='There are small visible gaps toward the brow tail.',
                  style_reason='A groomed brow balances the more saturated lip.',
                  application='Fill gaps with fine strokes within the original outline.')
     value.update(kwargs)
+    region = TechniqueCatalog().entries.get(tid, ('brows', {}))[0]
+    value.setdefault('structured_evidence', evidence(region))
     return value
 
 
@@ -125,6 +137,8 @@ def test_auto_supports_reducing_existing_brow_and_lip_makeup():
     source = design([color('brow_02', delta_lightness=.025, delta_chroma=0),
                      color('lips_04', delta_chroma=-.025)])
     source['brow_makeup_evidence'] = excess_brow_evidence()
+    for item in source['proposals']:
+        item['structured_evidence'].update(current_state='excess_product', pigment_source='applied_makeup', operation='reduce_product', visual_cues=['product_buildup'])
     plan = validate_design(source)
     assert [item['technique_id'] for item in plan.selected] == ['brow_02', 'lips_04']
     assert plan.selected[0]['color_delta']['delta_lightness'] == .025
@@ -147,7 +161,10 @@ def test_style_intensity_reaches_planner_editor_and_reduction_guidance():
     auto = planning_prompt(MakeupStyle.AUTO)
     assert 'target light, airy everyday makeup' in auto
     assert 'lips_04' in auto and 'negative delta_chroma' in auto
-    plan = validate_design(design([color('lips_04', delta_chroma=-.025)]))
+    candidate = color('lips_04', delta_chroma=-.025)
+    candidate['structured_evidence'] = evidence('lips', current_state='excess_product',
+        pigment_source='applied_makeup', operation='reduce_product', visual_cues=['product_buildup'])
+    plan = validate_design(design([candidate]))
     prompt = enhancement_prompt(MakeupStyle.AUTO, plan)
     assert '"delta_chroma": -0.025' in prompt
     assert 'visible reduction in pigment' in prompt
@@ -193,6 +210,7 @@ def test_strict_planning_schema_prevents_observed_format_failures():
 def test_brow_lightening_requires_product_evidence_without_filler(evidence, reason):
     source = design([color('brow_02', delta_lightness=.04, delta_chroma=0), color()])
     source['brow_makeup_evidence'] = evidence
+    source['proposals'][0]['structured_evidence'] = None
     plan = validate_design(source)
     assert [x['technique_id'] for x in plan.selected] == ['lips_01']
     assert plan.rejected_proposals == [{'technique_id': 'brow_02', 'reason': reason}]
@@ -212,3 +230,59 @@ def test_structured_output_requires_brow_evidence_field_but_allows_null():
     schema = planning_response_format()['json_schema']['schema']
     assert 'brow_makeup_evidence' in schema['required']
     assert {'type': 'null'} in schema['properties']['brow_makeup_evidence']['anyOf']
+
+
+@pytest.mark.parametrize('region', sorted(REGIONS))
+def test_balanced_regions_can_adapt_to_style(region):
+    from makeup_refine.model_planning import technique_evidence_rejection, TechniqueEvidence
+    e = TechniqueEvidence(**evidence(region, current_state='balanced'))
+    assert technique_evidence_rejection(e, region, 'style_action', None) is None
+
+@pytest.mark.parametrize('changes,reason', [
+    ({'region': 'lips'}, 'evidence_region_mismatch'),
+    ({'current_state': 'uncertain'}, 'uncertain_technique_evidence'),
+    ({'confidence': .84}, 'uncertain_technique_evidence'),
+    ({'visual_cues': []}, 'incomplete_technique_evidence'),
+    ({'target_effect': '  '}, 'incomplete_technique_evidence'),
+    ({'pigment_source': 'applied_makeup'}, 'contradictory_product_evidence'),
+])
+def test_structured_evidence_failures_filter_only_one_proposal(changes, reason):
+    bad = proposal(structured_evidence=evidence(**changes))
+    plan = validate_design(design([bad, color()]))
+    assert [x['technique_id'] for x in plan.selected] == ['lips_01']
+    assert plan.rejected_proposals[0]['reason'] == reason
+
+
+def test_missing_evidence_is_not_backfilled():
+    p = proposal(); p.pop('structured_evidence')
+    assert validate_design(design([p])).rejected_proposals[0]['reason'] == 'missing_technique_evidence'
+
+
+def test_bare_brows_can_darken_without_excess_product():
+    p = color('brow_01', delta_lightness=-.02, delta_chroma=0)
+    assert validate_design(design([p])).selected
+
+
+@pytest.mark.parametrize('tid,delta', [('brow_03', {'delta_lightness': .02}),
+                                       ('lips_03', {'delta_chroma': -.02})])
+def test_color_adjustment_cannot_bypass_product_reduction_gate(tid, delta):
+    plan = validate_design(design([color(tid, **delta)]))
+    assert plan.rejected_proposals[0]['reason'] == 'reduction_requires_applied_product'
+
+
+def test_new_brow_evidence_does_not_require_legacy_slot():
+    p = color('brow_02', delta_lightness=.02, delta_chroma=0)
+    p['structured_evidence'] = evidence('brows', current_state='excess_product',
+        pigment_source='applied_makeup', operation='reduce_product', visual_cues=['solid_product_fill'])
+    plan = validate_design(design([p]))
+    assert plan.selected[0]['structured_evidence'] == p['structured_evidence']
+
+
+def test_wire_requires_nonnull_evidence_and_visibility_prompt_disambiguates_makeup():
+    from makeup_refine.model_planning import planning_response_format
+    schema = planning_response_format()['json_schema']['schema']
+    for name in ('PlacementTechnique', 'ColorTechnique'):
+        assert schema['$defs'][name]['properties']['structured_evidence'] == {'$ref': '#/$defs/TechniqueEvidence'}
+    prompt = planning_prompt(MakeupStyle.AUTO)
+    assert 'visible=true even without' in prompt
+    assert 'no defect is required' in prompt

@@ -76,3 +76,30 @@ User feedback on the 2026-09-30 Date Night trial accepts the rendered look but r
 The active validator requires this evidence for `brow_02`: `pigment_source=applied_makeup`, `excess_applied_product=true`, confidence at least the existing availability threshold (0.85), one or more product cues, and nonblank observation/reason. Missing evidence, natural hair, uncertain classification, non-excessive product and incomplete evidence have distinct rejection reasons. Natural darkness and "balance stronger eyes" do not independently satisfy this structured gate. The evidence is saved with the validation audit and accepted action. Other brow techniques remain available without evidence of existing product; no replacement technique is inserted automatically.
 
 This checks consistency/completeness of model-reported evidence, not independent visual proof that a product is present. The model can still misclassify the photograph. Offline replay of the saved Date Night plan now rejects its unsupported `brow_02`; it leaves the accepted photo and historical plan untouched. Evidence and replay are in `outputs/brow-softening-validation-20260930/offline-replay.json`.
+
+### Per-technique evidence (2026-10-01)
+
+Every new proposal includes `structured_evidence`: anatomical region, current state,
+pigment source, operation, purpose, confidence, observable cues, observation,
+target effect, and style rationale. The strict API schema requires a non-null
+object; locally, missing or insufficient evidence filters the proposal without
+inventing a replacement. Invalid schema values still fail schema parsing.
+
+Anatomical `visibility` is independent of makeup presence: bare visible eyelids,
+cheeks and nose remain available. Balanced makeup may be adapted to the selected
+style; adding makeup does not require declaring a natural feature defective.
+`brow_01` darkening is enhancement, not removal of excess product.
+
+Reduction requires identifiable excess applied product. This also checks actual
+color deltas: positive brow lightness or negative lip chroma cannot evade the gate
+by being named a hue adjustment. Natural pigmentation alone is insufficient.
+Confidence retains the existing uncalibrated 0.85 floor; no new arbitrary nose
+confidence threshold was introduced. Existing nose intensity limits still apply.
+
+The old top-level `brow_makeup_evidence` remains readable for historical audit,
+but cannot substitute for per-proposal evidence. Existing free-text `evidence`
+lists remain compatible with consumers; structured evidence has its own key and
+is displayed in the test report. Historical files are not silently rewritten.
+These checks enforce reported consistency, not independent visual truth, beauty,
+or proof of adherence by the image generator. Generation and final comparison
+remain necessary. No live API validation is implied by the local regression tests.

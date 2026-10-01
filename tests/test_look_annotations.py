@@ -52,12 +52,12 @@ def test_annotations_and_after_image_share_the_same_clipped_layer(tmp_path):
     image = Image.new('RGB', (768, 1024), 'gray')
     write_report(path, image, masks={}, result=image, look_result=report(['lips']))
     html = path.read_text()
-    after_start = html.index('<div id="refined">')
+    after_start = html.index('<div id="refined" data-refined>')
     annotations = html.index('<div class="after-annotations"')
-    divider = html.index('<span id="divider">')
+    divider = html.index('<span id="divider" data-divider>')
     assert after_start < annotations < divider
     assert 'clip-path:inset(0 50% 0 0)' in html
-    assert "document.getElementById('refined').style.clipPath" in html
+    assert "panel.querySelector('[data-refined]').style.clipPath" in html
     assert 'pointer-events:none' in html
 
 

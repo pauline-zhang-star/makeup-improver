@@ -1,7 +1,6 @@
-"""Validated technique vocabulary and measured pre-edit selection.
+"""Technique vocabulary and legacy selection retained for offline audits.
 
-Measured triggers abstain when evidence is missing. Explicit style baselines
-can fill confidently visible regions. Thresholds remain experimental.
+Production uses model_planning.validate_design, not the threshold/recipe selector.
 """
 import json
 from pathlib import Path
@@ -197,6 +196,11 @@ class TechniquePlan(StrictModel):
     measurement_source: str
     selected: list[dict]
     max_total_suggestions: int = MAX_SELECTED_TECHNIQUES
+    selection_method: str = 'legacy_threshold_recipe'
+    look_direction: str = ''
+    preserved_areas: list[dict] = Field(default_factory=list)
+    rejected_proposals: list[dict] = Field(default_factory=list)
+    validation_results: list[dict] = Field(default_factory=list)
 
     @model_validator(mode='after')
     def capped(self):

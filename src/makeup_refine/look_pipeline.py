@@ -1,4 +1,4 @@
-"""Select measured techniques, generate once, then explain the resulting pixels."""
+"""Validate a model-designed look, generate, then explain the resulting pixels."""
 import numpy as np
 from pydantic import ValidationError
 from .imaging import to_srgb, composite, edge_safe_composite
@@ -11,10 +11,9 @@ from .look_alignment import align_candidate, register_direct_candidate
 from .look_composite import composite_complexion_base, preserve_complexion_texture
 from .landmarks import validate_face, LIPS, INNER_LIPS
 from .lip_blend import blend_full_lips
-from .technique_catalog import (TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGION_TARGET,
-                                STYLE_SIGNATURE_PRIORITY, STYLE_TECHNIQUE_PRIORITY,
-                                STYLE_TRIGGER_OVERRIDES)
+from .technique_catalog import TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGION_TARGET
 from PIL import Image
+from .comparison_evidence import build_comparison_evidence, unresolved_evidence
 from .models import SpikeError
 from .preflight import check_face
 from .quality import (validate_candidate_geometry, validate_facial_proportions,
@@ -93,31 +92,38 @@ class LookPipeline:
         self.on_attempt = on_attempt
         self.on_aligned = on_aligned
 
-    def explain(self, original, enhanced):
+    def explain(self, original, enhanced, evidence=None):
         """May be retried on the saved pair without calling the image editor."""
         if original.size != enhanced.size:
             raise SpikeError('QUALITY_CHECK_FAILED', 'Image dimensions changed.')
         if np.array_equal(np.asarray(original), np.asarray(enhanced)):
             return {'status': 'completed_no_visible_changes', 'steps': [], 'assessments': [],
-                    'preservationIssues': [], 'comparisonStatus': 'identical_pixels'}
+                    'preservationIssues': [], 'comparisonStatus': 'identical_pixels',
+                    'comparisonEvidence': evidence, 'pendingChangeReviews': []}
         try:
-            comparison = LookComparison.model_validate(self.explainer.explain_changes(original, enhanced))
+            arguments = {'evidence': evidence} if evidence else {}
+            comparison = LookComparison.model_validate(
+                self.explainer.explain_changes(original, enhanced, **arguments))
         except (SpikeError, ValidationError) as exc:
             if isinstance(exc, SpikeError) and exc.code != 'EXPLANATION_FAILED':
                 raise
             return {'status': 'instructions_unavailable', 'steps': [], 'assessments': [],
                     'preservationIssues': [], 'comparisonStatus': 'unavailable',
-                    'errorCode': 'EXPLANATION_FAILED',
+                    'errorCode': 'EXPLANATION_FAILED', 'pendingChangeReviews': [],
+                    'comparisonEvidence': evidence,
                     'message': 'The comparison could not verify all eight areas. Retry the comparison without regenerating the image.'}
         assessments = [a.model_dump() for a in comparison.assessments]
         if comparison.preservationIssues:
             return {'status': 'rejected', 'steps': [], 'comparisonStatus': 'completed',
                     'preservationIssues': comparison.preservationIssues, 'assessments': assessments,
+                    'comparisonEvidence': evidence, 'pendingChangeReviews': [],
                     'message': 'The comparison detected changes beyond makeup. This result needs review.'}
         steps = [step.model_dump() for step in comparison.visible_steps()]
         return {'status': 'completed' if steps else 'completed_no_visible_changes',
                 'steps': steps, 'assessments': assessments,
-                'preservationIssues': [], 'comparisonStatus': 'completed'}
+                'preservationIssues': [], 'comparisonStatus': 'completed',
+                'comparisonEvidence': evidence,
+                'pendingChangeReviews': unresolved_evidence(evidence or {}, comparison)}
 
     def run(self, original, style=None):
         style = MakeupStyle(style or MakeupStyle.AUTO)
@@ -127,11 +133,13 @@ class LookPipeline:
             self.on_plan(plan)
         plan_report = {'techniquePlan': plan.model_dump(),
                        'selectedTechniques': [item['technique_id'] for item in plan.selected],
-                       'styleTechniqueRecipe': list(STYLE_SIGNATURE_PRIORITY.get(style, ())),
-                       'styleOptionalTechniques': list(STYLE_TECHNIQUE_PRIORITY[style]),
-                       'styleTriggerOverrides': STYLE_TRIGGER_OVERRIDES.get(style, {}),
+                       'planningMode': plan.selection_method,
+                       'lookDirection': plan.look_direction,
+                       'preservedAreas': plan.preserved_areas,
+                       'rejectedProposals': plan.rejected_proposals,
                        'plannedDistinctRegionsTarget': PLANNED_REGION_TARGET,
                        'plannedTargetMet': len({item['region'] for item in plan.selected}) >= PLANNED_REGION_TARGET,
+                       'aestheticThresholdsUsed': plan.selection_method == 'legacy_threshold_recipe',
                        'thresholdsEmpiricallyCalibrated': False}
         if getattr(self.editor, 'last_technique_analysis', None) is not None:
             plan_report['techniqueAnalysis'] = self.editor.last_technique_analysis
@@ -139,9 +147,13 @@ class LookPipeline:
             enhanced = original.copy()
             if self.on_enhanced:
                 self.on_enhanced(enhanced)
-            return enhanced, {**plan_report, 'status': 'completed_no_changes',
+            return enhanced, {**plan_report, 'status': ('planning_rejected' if plan.rejected_proposals
+                                                       else 'completed_no_changes'),
                               'requestedStyle': style.value, 'steps': [], 'assessments': [],
-                              'comparisonStatus': 'skipped_no_selected_techniques',
+                              'comparisonStatus': ('skipped_invalid_plan' if plan.rejected_proposals
+                                                   else 'skipped_no_selected_techniques'),
+                              **({'message': 'All proposed techniques failed local validation. See rejectedProposals.'}
+                                 if plan.rejected_proposals else {}),
                               **summarize_observed_changes([], []),
                               'imageEditCalls': 0, 'humanReviewRequired': True}
         complexion_enabled = any(item['region'] == 'foundation' for item in plan.selected)
@@ -150,10 +162,19 @@ class LookPipeline:
         for attempt in range(1, self.max_edit_attempts + 1):
             arguments = {'correction': correction} if correction else {}
             alignment, deviation = {}, None
+            checkpoints = {key: {'status': 'not_run'} for key in
+                           ('generation', 'registration', 'compositing', 'region_measurement',
+                            'landmark_geometry', 'facial_proportions', 'protected_pixels', 'region_visibility')}
+            active_check = 'generation'
+            def passed(name, details=None):
+                checkpoints[name] = {'status': 'passed', 'details': details}
+
             try:
                 candidate = to_srgb(self.editor.enhance(original, style, mask, plan, **arguments))
+                passed('generation')
                 if self.on_candidate:
                     self.on_candidate(candidate)
+                active_check = 'registration'
                 try:
                     aligned, alignment = register_direct_candidate(
                         original, candidate, points, self.landmarks, mask)
@@ -169,6 +190,8 @@ class LookPipeline:
                         original, candidate, points, self.landmarks, mask,
                         max_restored_border=.08)
                     alignment['registrationFallback'] = 'expanded_border_recovery'
+                passed('registration', alignment.copy())
+                active_check = 'compositing'
                 enhanced, composite_report = edge_safe_composite(original, aligned, mask)
                 complexion_texture_report = {'textureRestorationApplied': False}
                 foundation_items = [item for item in plan.selected
@@ -179,15 +202,25 @@ class LookPipeline:
                         original, enhanced, foundation_mask)
                 alignment['protectedRegionComposite'] = composite_report
                 alignment['complexionTexture'] = complexion_texture_report
+                passed('compositing', composite_report)
+                active_check = 'region_measurement'
                 selected_changes = selected_region_change_metrics(
                     original, enhanced, points, style, plan.selected)
+                passed('region_measurement', selected_changes)
                 alignment['selectedTechniqueChangeMetrics'] = selected_changes
                 if self.on_aligned:
                     self.on_aligned(enhanced)
+                active_check = 'landmark_geometry'
                 deviation = validate_candidate_geometry(enhanced, original, points, self.landmarks)
+                passed('landmark_geometry', {'maxLandmarkDeviation': deviation})
+                active_check = 'facial_proportions'
                 proportions = validate_facial_proportions(
                     enhanced, original, self.landmarks, style=style)
+                passed('facial_proportions', proportions)
+                active_check = 'protected_pixels'
                 preservation = validate_protected_pixels(original, enhanced, mask)
+                passed('protected_pixels', preservation)
+                active_check = 'region_visibility'
                 region_issues = [item for item in selected_changes
                                  if item['tooLittleChange'] or item['tooMuchChange']]
                 if region_issues:
@@ -196,8 +229,13 @@ class LookPipeline:
                         'QUALITY_CHECK_FAILED',
                         f'The selected {names} technique(s) fell outside the allowed visible-change band in their own edit regions.',
                         {'selectedTechniqueChangeMetrics': selected_changes})
+                passed('region_visibility', selected_changes)
             except SpikeError as exc:
+                checkpoints[active_check] = {'status': 'failed', 'message': exc.message, **exc.details}
                 if exc.code not in {'QUALITY_CHECK_FAILED', 'NO_FACE', 'MULTIPLE_FACES'}:
+                    if self.on_attempt:
+                        self.on_attempt({'attempt': attempt, 'status': 'failed', 'errorCode': exc.code,
+                                         'message': exc.message, 'checks': checkpoints})
                     raise
                 correction = exc.message
                 selected_changes = alignment.get('selectedTechniqueChangeMetrics', [])
@@ -215,7 +253,7 @@ class LookPipeline:
                     if too_much:
                         correction += (f' Also, the selected {", ".join(too_much)} region(s) '
                                        'changed too strongly; soften those selected techniques inside their masks.')
-                record = {'attempt': attempt, 'status': 'rejected', 'errorCode': exc.code,
+                record = {'attempt': attempt, 'status': 'rejected', 'errorCode': exc.code, 'checks': checkpoints,
                           'message': exc.message, 'alignment': alignment,
                           'maxLandmarkDeviation': deviation, **exc.details}
                 attempts.append(record)
@@ -225,7 +263,7 @@ class LookPipeline:
                     raise SpikeError(exc.code, exc.message,
                                      {'generationAttempts': attempts, 'imageEditCalls': attempt}) from exc
                 continue
-            record = {'attempt': attempt, 'status': 'passed', 'alignment': alignment,
+            record = {'attempt': attempt, 'status': 'passed', 'alignment': alignment, 'checks': checkpoints,
                       'maxLandmarkDeviation': deviation, **proportions, **preservation}
             attempts.append(record)
             if self.on_attempt:
@@ -245,7 +283,9 @@ class LookPipeline:
                     'humanReviewRequired': True, **preservation}
         if self.on_enhanced:
             self.on_enhanced(enhanced)
-        explanation = self.explain(original, enhanced)
+        evidence = build_comparison_evidence(original, enhanced, points, style, plan.selected)
+        metadata['comparisonEvidence'] = evidence
+        explanation = self.explain(original, enhanced, evidence=evidence)
         planned_areas = {('eyebrows' if item['region'] == 'brows' else
                           'complexion' if item['region'] == 'foundation' else item['region'])
                          for item in plan.selected}

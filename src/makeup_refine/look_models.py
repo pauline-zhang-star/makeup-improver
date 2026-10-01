@@ -48,7 +48,7 @@ class AreaComparison(StrictModel):
 
 
 class LookComparison(StrictModel):
-    # The comparator sees images only, never a style brief or a proposed plan.
+    # The comparator sees images, local crops and pixel evidence, never intended style or advice.
     preservationIssues: list[Literal['identity', 'face_shape', 'pose', 'glasses', 'hair',
                                     'lighting', 'clothes', 'background']] = Field(max_length=8)
     assessments: list[AreaComparison] = Field(min_length=8, max_length=8)

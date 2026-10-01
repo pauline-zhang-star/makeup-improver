@@ -2,24 +2,49 @@
 import json
 from .look_models import MakeupStyle, LookComparison
 
+# Shared by planning and rendering so the same artistic priorities reach both APIs.
+LOOK_HARMONY_PRINCIPLES = (
+    'Within all identity, geometry, mask and technique bounds, prioritize a harmonious, flattering '
+    'whole-face result that moves the existing makeup toward the requested style. '
+    'Style sets the overall direction, color relationships, finish and visual emphasis; intensity '
+    'is a means to that result, not a goal to maximize or minimize independently. '
+    'Read the original makeup as a whole and judge brows, eyes, cheeks and lips in relation to each '
+    'other. Decide which areas should lead and which should support them. Coordinate pigment '
+    'warmth/coolness, relative depth, saturation, edge softness and finish without making every '
+    'feature equally prominent or forcing identical colors. '
+    'Depending on the original photo, reaching the same style can require strengthening one area, '
+    'softening another and preserving a third. Neither a darker result nor a lighter result is '
+    'automatically an improvement. Do not optimize each area in isolation. '
+    'Auto aims for harmonious, light everyday makeup overall, not a requirement to fade every feature. '
+    'Date Night should read as visibly stronger evening makeup, with clear brow shape that supports '
+    'expressive eyes and richer lips. Balance the strengths through placement, tapering and blending; '
+    'do not default to lightening brows or muting lips simply because the eyes are emphasized. '
+    'Natural dark brow hairs are not evidence of excessive applied brow makeup. Soft edges and '
+    'visible hair texture do not require a lighter brow color. '
+    'Keep the selected style recognizable: harmony is not permission to replace it with generic '
+    'natural makeup. These aesthetic priorities never authorize unselected edits, larger masks, '
+    'excessive intensity/color deltas or changes to anatomy or protected regions. '
+)
+
+
 STYLE_BRIEFS = {
-    MakeupStyle.AUTO: 'Choose a cohesive soft everyday polish suited to the visible selfie. Prefer flattering placement and shape over simply making pigment darker. Do not require a style selection.',
+    MakeupStyle.AUTO: 'Auto means a light, soft everyday makeup look suited to the visible selfie. Lightness describes the overall everyday impression, not a fixed intensity for every feature. Prefer flattering placement and shape over simply making pigment darker. If the existing makeup is already heavy, reduce excess pigment instead of adding more. Do not require a style selection.',
     MakeupStyle.NATURAL: 'Natural: restrained definition, softly blended pigment, and realistic skin texture.',
     MakeupStyle.WORK: 'Work / Polished: neat definition, balanced contrast, and a composed everyday finish.',
     MakeupStyle.KOREAN_SOFT: 'Korean Soft: softly diffused eyes, fresh blush and softly graduated lips. This describes makeup only, not ethnicity or facial anatomy.',
     MakeupStyle.FRESH: 'Fresh: lively but balanced blush and lip color, light eye definition, and realistic skin texture.',
-    MakeupStyle.DATE_NIGHT: 'Date Night: an unmistakably evening-ready makeup look with expressive eyes and coordinated lip color, while preserving the wearer\'s exact face and identity.',
+    MakeupStyle.DATE_NIGHT: 'Date Night: a visibly stronger evening makeup look with clearly defined brows, expressive eyes and richer coordinated lip color, while preserving the wearer\'s exact face and identity.',
     MakeupStyle.SOPHISTICATED: 'Sophisticated: controlled contrast, precise tapered definition, and harmonious eye and lip finishes.',
     MakeupStyle.SOFT_GLAM: 'Soft Glam: softly sculpted eye makeup, defined lashes, and blended luminous finishes without changing lighting.',
 }
 
 STYLE_RENDERING_RULES = {
-    MakeupStyle.AUTO: 'Keep contrast low and edits understated, with no prescribed style signature.',
+    MakeupStyle.AUTO: 'Target a harmonious, airy everyday impression, using low contrast where it supports the whole look. Prefer brows with visible individual hairs and softly diffused edges, light eye definition, and a sheer, restrained lip where appropriate; retain or add local definition when needed to balance the face. Judge the finished look, not just the size of the edit. When identifiable applied brow makeup is too heavy or block-like for this target, select a supported brow-softening technique; natural dark hairs alone do not justify lightening; when lips are too saturated, select lip chroma softening. Preserve useful shape and definition while reducing excess pigment. Do not interpret visible improvement as mandatory darkening, saturation increase or sharper borders.',
     MakeupStyle.NATURAL: 'Use sheer, skin-like finishes and soft neutral definition. Keep brows close to their natural shape, place any cheek flush on the apples, and make selected lip tint softly perceptible but restrained. Avoid crisp edges and visible contour.',
     MakeupStyle.WORK: 'Use tidy, balanced definition for a composed daytime look: softly groomed brows, neutral lid color, fine upper-lash definition, a restrained skin-like finish in selected complexion areas, and a light cheek tint kept mostly on the cheek center. Keep shine and wing length controlled; do not add a full-face coverage pass.',
     MakeupStyle.KOREAN_SOFT: 'Use softly diffused upper-lid color, soft hairlike brow definition without a carved lower edge, a clearly visible but sheer youthful pink flush centered on the apples closer to the nose and blended outward with no round patch, and a visible gradient lip tint concentrated at the center and feathered toward the edges.',
     MakeupStyle.FRESH: 'Use a light, lively look: place a sheer blush on the apples and blend it softly outward, pair it with a fresh but balanced lip, keep eye definition light, and preserve skin texture.',
-    MakeupStyle.DATE_NIGHT: 'Make this visibly more evening-ready than daytime makeup: softly groomed brows that frame the eyes, a clear tapered outer wing, deeper blended outer-corner shadow, richer coordinated lip pigment and lifted cheek color when those techniques are in the style recipe. Keep brow color natural and edges soft; balance eye depth, brow definition, cheek warmth and lip color as one palette, without forcing them to match exactly. Keep pigment blended and within the selected areas; never change eye opening or facial geometry.',
+    MakeupStyle.DATE_NIGHT: 'Make this clearly read as evening makeup, richer than Auto: defined, groomed brows strong enough to frame expressive eyes; a tapered outer wing and blended outer-corner shadow for depth; richer coordinated lip pigment and supportive cheek color, according to the selected techniques. On bare or lightly made-up brows, preserve natural hair color and build a clear shape through filling genuine gaps, refining the tail or controlled edge definition within the existing outline. Keep visible hair strokes and blended transitions; clearly defined does not mean a solid dark block. Do not choose lighter brows as the default counterweight to stronger eyes or lips. Reduce brow pigment only when the original shows identifiable excessive applied product, with a specific reason it disrupts the evening look; natural darkness or prominent hairs alone are not such evidence. Preserve already suitable definition. Coordinate color temperature, depth and finish without weakening the Date Night character or forcing every feature to maximum contrast. Keep pigment within the selected areas and retain all anatomy and eye-opening protections.',
     MakeupStyle.SOPHISTICATED: 'Use controlled, precise definition: groomed brow tails, clean tapered eye edges, a restrained cheekbone sweep, and coordinated satin-like color. Keep placement deliberate and avoid shine everywhere or heavy contrast.',
     MakeupStyle.SOFT_GLAM: 'Use a luminous but skin-like finish only in selected complexion areas, layered and diffused neutral eye depth, defined lashes, softly lifted outward cheek color, and a blended lip. Build dimension through gradual blending rather than hard lines or a smoky block.',
 }
@@ -30,13 +55,18 @@ def enhancement_prompt(style, plan=None):
     if style == MakeupStyle.AUTO:
         style_mode = (
             'Auto mode is conservative: keep the selected cosmetic edits tight, softly blended and '
-            'understated within the current mask. Do not broaden the effect merely to make a style statement. '
+            'appropriate to a light everyday whole within the current mask. Local definition may be '
+            'stronger where needed for balance; do not uniformly fade every selected feature. '
+            'Do not broaden the effect merely to make a style statement. '
         )
     else:
         style_mode = (
             'A named makeup style was selected. Use the wider permitted selected-technique mask and make '
-            'the chosen style visibly recognizable with moderately stronger pigment placement, coverage and '
-            'finish plus broader internal blending than Auto. This relaxation applies only to cosmetic '
+            'the chosen style visibly recognizable at its own target intensity, coverage and finish. '
+            'Natural, Korean Soft and Fresh still require light or sheer pigment; selecting a named style '
+            'does not automatically mean darker makeup. Date Night calls for a richer evening result. '
+            'The wider mask provides room for appropriate placement and blending, not a requirement for '
+            'greater pigment strength. This relaxation applies only to cosmetic '
             'rendering inside selected technique areas; it does not permit face reshaping, identity changes, '
             'a decrease in eye opening, coverage of the visible iris or eye white, or edits to hair, glasses, '
             'lighting, clothes or background. '
@@ -52,26 +82,34 @@ def enhancement_prompt(style, plan=None):
                      'lashes, blush and complexion. ')
     else:
         selected = plan.selected if hasattr(plan, 'selected') else plan['selected']
+        look_direction = (plan.look_direction if hasattr(plan, 'look_direction')
+                          else plan.get('look_direction', ''))
         techniques = []
         for item in selected:
             control = ('demonstrate the placement clearly at finished strength '
                        + str(item['intensity'])
                        if item['adjustment_type'] == 'placement'
                        else 'relative OKLCH delta ' + json.dumps(item['color_delta']))
-            techniques.append(item['technique_id'] + ': ' + item['instruction'] + ' (' + control + ').')
+            adaptation = (' Photo-specific application: ' + item['application']
+                          if item.get('application') else '')
+            if item.get('target_side'):
+                adaptation += ' Target image side: ' + item['target_side'] + '.'
+            techniques.append(item['technique_id'] + ': ' + item['instruction'] + adaptation + ' (' + control + ').')
         lip_specific_direction = (
             'For the selected lower-lip center highlight, add a small light-catching accent only at the '
             'center of the lower lip; preserve its overall hue, saturation, gloss, outline and corners. '
             if any(item['technique_id'] == 'lips_02' for item in selected) else '')
-        technique_heading = ('Apply the selected style recipe techniques: '
-                             if style != MakeupStyle.AUTO
-                             else 'Apply these measured, selected makeup techniques: ')
-        direction = (technique_heading +
+        technique_heading = 'Apply the selected catalog techniques: '
+        direction = (('Overall coordinated look: ' + look_direction + '. '
+                      'This direction applies only through the selected techniques and within their bounds. '
+                      if look_direction else '') + technique_heading +
                      ' '.join(techniques) + ' '
                      'Demonstrate EACH selected technique in its own targeted area; do not silently skip one '
                      'or substitute a different cosmetic change. Every selected technique must remain '
                      'perceptible in a normal-size before/after comparison; blend its edges without fading '
-                     'the requested effect into invisibility. Placement entries change placement or '
+                     'the requested effect into invisibility. A clearly visible reduction in pigment, saturation '
+                     'or harshness is a valid improvement; never reverse a softening technique to satisfy visibility. '
+                     'Placement entries change placement or '
                      'highlight only, not the entire region color or finish. ' + lip_specific_direction +
                      'Do not add unselected feature edits; optional facial base makeup is allowed as described below. '
                      'For a color entry, use only the supplied relative '
@@ -89,12 +127,14 @@ def enhancement_prompt(style, plan=None):
         'Edit the supplied original selfie into ONE finished, improved makeup photograph. '
         'Only alter cosmetic pigment, facial base-makeup finish and lash appearance inside the transparent mask. '
         'The opaque part, including the face position and eye/mouth interiors, must stay aligned. '
-        + STYLE_BRIEFS[style] + ' '
+        + LOOK_HARMONY_PRINCIPLES + STYLE_BRIEFS[style] + ' '
         + style_mode +
         'Style-specific rendering direction: ' + STYLE_RENDERING_RULES[style] + ' '
         'Inspect and work with any makeup already present: improve or modify it where appropriate '
         'instead of removing it and starting over. Use the same unified approach whether makeup '
-        'is absent, partial or complete. ' + direction +
+        'is absent, partial or complete. Compare the existing makeup with the style target: selected '
+        'changes may add, retain or reduce cosmetic pigment. Reducing heavy existing makeup does not '
+        'mean removing all makeup or starting over, and must not lighten natural skin or hair. ' + direction +
         'Blend shadow and contour edges; never draw a harsh dark '
         'lip perimeter. Avoid heavy smoky eyes, obvious blush circles and uniform darkening. '
         'Preserve the exact person, facial anatomy and face shape, expression, pose, glasses '
@@ -142,7 +182,22 @@ def comparison_prompt():
         'nose_contour, blush, lips and complexion. Never silently omit an area. For each, explicitly classify changed, unchanged or '
         'uncertain and give before/after evidence with honest confidence. For lips specifically compare '
         'hue, depth, saturation, finish and edge definition, including changes to existing lipstick. '
-        'A change need not be newly added makeup to count. Do not assume any area changed. '
+        'A change need not be newly added makeup to count. Less pigment, lower saturation and softer '
+        'edges also count when visible. If makeup became lighter, explain how to reduce or blend out '
+        'existing product or replace it with a sheerer, less saturated application; do not turn the '
+        'instruction into adding a darker layer. Do not mistake reduced makeup pigment for skin whitening. '
+        'Do not assume any area changed. '
+        'When local pixel evidence and paired detail crops are supplied, inspect EVERY listed region '
+        'using both the full photographs and the matching ORIGINAL/ENHANCED crops. '
+        'Pixel and edge deltas are attention cues, not proof of makeup: alignment, texture and lighting '
+        'can also change pixels, and eyeliner/eyeshadow/lash masks may overlap. Do not count the same '
+        'pigment as several distinct cosmetics without visual evidence. '
+        'For eyeliner inspect contour, thickness, tail and darkness separately from lashes and shadow. '
+        'For blush inspect diffuse cheek hue, saturation and placement, not only sharp edges. '
+        'If needsCloseReview is true but you classify unchanged or uncertain, explain the discrepancy '
+        'explicitly in before/after evidence; never silently dismiss the region. '
+        'Review areas are a checklist of locations only, not a requested style or intended result. '
+
         'Only for changed areas give a concise, actionable instruction '
         'for reproducing that change FROM THE ORIGINAL makeup: identify placement, direction, shape, '
         'relative color and blending or application technique where visible. Work with existing makeup. '

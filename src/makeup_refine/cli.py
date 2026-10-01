@@ -10,14 +10,42 @@ from .look_models import MakeupStyle
 from .look_pipeline import LookPipeline, reconcile_guidance_with_plan, summarize_observed_changes
 from .models import SpikeError
 from .report import write_report
+from .api_usage import attach_usage
+from .trial_trace import TrialTrace, trace_for_report
 
 
 def save_review(directory, original, enhanced, report):
     # Fixed local names; never accept provider-supplied output paths.
-    payload = {**report, 'originalImage': 'originalImage.png',
+    payload = {**report, 'apiTrace': trace_for_report(directory), 'originalImage': 'originalImage.png',
                'enhancedImage': 'enhancedImage.png' if enhanced is not None else None,
                'flow': 'image_first', 'humanReviewRequired': True,
                'retention': 'Local files remain until you delete this directory.'}
+    # If the provider rejected dimensions before returning to the pipeline, retain
+    # the real API image from the trace as a diagnostic candidate, too.
+    generations = [c for c in payload['apiTrace'] if c['stage'] == 'generation']
+    for number, call in enumerate(generations, 1):
+        response = call.get('responsePayload') or {}
+        data = response.get('data', []) if isinstance(response, dict) else []
+        if data and isinstance(data[0], dict):
+            ref = data[0].get('b64_json')
+            if isinstance(ref, dict) and ref.get('file'):
+                source = (directory / ref['file']).resolve()
+                if directory.resolve() not in source.parents:
+                    continue
+                target = directory / f'candidate-{number}.png'
+                if not target.exists():
+                    try:
+                        with Image.open(source) as image:
+                            to_srgb(image).save(target)
+                    except (OSError, ValueError):
+                        continue
+                if enhanced is None and number == len(generations):
+                    payload['candidateImage'] = target.name
+                    aligned = directory / f'aligned-candidate-{number}.png'
+                    if aligned.exists():
+                        payload['alignedCandidateImage'] = aligned.name
+                    else:
+                        payload.pop('alignedCandidateImage', None)
     temporary = directory / 'result.json.tmp'
     temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
     temporary.replace(directory / 'result.json')
@@ -72,8 +100,19 @@ def main():
             with Image.open(directory / 'enhancedImage.png') as image:
                 enhanced = to_srgb(image)
             provider = OpenAIProvider(get_api_key(), args.vision_model, report.get('editModel', ''))
-            # Explanation-only path has no detector and never uses the editor.
-            report.update(LookPipeline(provider, provider, None).explain(original, enhanced))
+            attach_usage(provider, directory, report, historical=True)
+            provider.trial_trace = TrialTrace(directory)
+            # Saved evidence avoids detector initialization on subsequent comparisons.
+            evidence = report.get('comparisonEvidence')
+            if not evidence and args.landmark_model:
+                from .landmarks import MediaPipeLandmarks, validate_face
+                from .comparison_evidence import build_comparison_evidence
+                detector = MediaPipeLandmarks(str(args.landmark_model))
+                points = validate_face(detector.detect(original))
+                evidence = build_comparison_evidence(original, enhanced, points,
+                    report.get('requestedStyle', 'Auto'), report.get('techniquePlan', {}).get('selected', []))
+                report['comparisonEvidence'] = evidence
+            report.update(LookPipeline(provider, provider, None).explain(original, enhanced, evidence=evidence))
             if report.get('minimumDistinctRegionsTarget') or report.get('techniquePlan'):
                 selected = report.get('techniquePlan', {}).get('selected', [])
                 if report.get('generationMode') == 'direct_api_result':
@@ -100,15 +139,18 @@ def main():
             if args.output.exists():
                 raise SpikeError('OUTPUT_EXISTS', 'Choose a new output directory to avoid mixing sessions.')
             original = load_image(args.image)
-            from .landmarks import MediaPipeLandmarks
-            detector = MediaPipeLandmarks(str(args.landmark_model))
-            provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
             args.output.mkdir(parents=True, mode=0o700)
             directory = args.output
             original.save(directory / 'originalImage.png')
             report = {'status': 'generating', 'steps': [], 'requestedStyle': args.style,
                       'visionModel': args.vision_model, 'editModel': args.edit_model,
                       'provider': 'openai'}
+            save_review(directory, original, None, report)
+            from .landmarks import MediaPipeLandmarks
+            detector = MediaPipeLandmarks(str(args.landmark_model))
+            provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
+            attach_usage(provider, directory, report)
+            provider.trial_trace = TrialTrace(directory)
 
             def save_enhanced(image):
                 nonlocal enhanced
@@ -132,6 +174,8 @@ def main():
                 image.save(directory / f'candidate-{number}.png')
                 image.save(directory / 'candidateImage.png')
                 report['candidateImage'] = 'candidateImage.png'
+                report.pop('alignedCandidateImage', None)
+                save_review(directory, original, None, report)
 
             def save_attempt(record):
                 report.setdefault('generationAttempts', []).append(record)
@@ -149,7 +193,9 @@ def main():
                                              save_attempt, save_aligned).run(original, args.style)
             report.update(outcome)
         save_review(directory, original, enhanced, report)
-        print(json.dumps({'status': report['status'], 'output': str(directory)}))
+        print(json.dumps({'status': report['status'], 'output': str(directory),
+                          'apiCost': {k: report.get('apiUsage', {}).get(k) for k in
+                                      ('totalEstimatedUSD', 'knownEstimatedUSD', 'complete')}}))
         return 1 if report['status'] == 'rejected' else 0
     except SpikeError as exc:
         failure = {'status': 'failed', 'errorCode': exc.code, 'message': exc.message, **exc.details}
@@ -159,14 +205,23 @@ def main():
         print(json.dumps(failure), file=sys.stderr)
         return 1
     except (OSError, ValueError, ImportError, RuntimeError):
-        print(json.dumps({'status': 'failed', 'errorCode': 'CONFIGURATION_ERROR',
-                          'message': 'Check dependencies, model names, local files and API key configuration.'}), file=sys.stderr)
+        failure = {'status': 'failed', 'errorCode': 'CONFIGURATION_ERROR',
+                   'message': 'Check dependencies, model names, local files and API key configuration.'}
+        if directory is not None and original is not None and not args.retry_instructions:
+            save_review(directory, original, enhanced, {**report, **failure, 'steps': []})
+        print(json.dumps(failure), file=sys.stderr)
         return 1
     finally:
         if provider:
             provider.close()
         if detector:
             detector.close()
+        # Usage is saved by the provider even when parsing or comparison fails.
+        # Refresh only its presentation; never replace a usable result with retry failure.
+        if (directory is not None and original is not None and
+                (directory / 'result.json').exists() and (directory / 'api-usage.json').exists()):
+            saved = json.loads((directory / 'result.json').read_text())
+            save_review(directory, original, enhanced, saved)
 
 
 if __name__ == '__main__':

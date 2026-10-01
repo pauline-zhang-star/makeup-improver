@@ -1,67 +1,16 @@
-# Technique Mapping Table (v1.6 — balanced Date Night recipe)
+# Technique catalog (v1.6 vocabulary; model_visual_reasoning_v1 planning)
 
-**Companion file:** [`src/makeup_refine/technique_mapping_table.json`](../src/makeup_refine/technique_mapping_table.json) mirrors every entry in this document in machine-readable form (ids, trigger conditions, instruction templates, caps). Load that file directly rather than transcribing the markdown tables below by hand — hand-transcription is a likely source of copy errors. This markdown file is the source of truth for *content and reasoning*; the JSON file is the source of truth for *exact field values* and should be regenerated from this document if the two ever disagree.
+The JSON companion `src/makeup_refine/technique_mapping_table.json` supplies stable technique IDs, instructions, enabled flags, conflicts and rendering caps. Current selection is implemented in `src/makeup_refine/model_planning.py`; see [the model planning flow](MODEL_PLANNING_FLOW.md).
 
-## Purpose
+**The trigger_condition / measured_feature columns below are historical applicability descriptions, not production admission thresholds.** The JSON recipe, baseline and trigger metadata remains for [offline historical audits](LEGACY_SELECTION_FLOW.md). Production does not expose these score thresholds or fixed recipes to the planning model.
 
-This table is the controlled vocabulary the refinement-planning AI call (Section 16 of the main design doc) selects from. It replaces free-text generation with matching against pre-vetted, human-curated technique candidates.
+## Active flow
 
-**How it fits the pipeline:**
+Original selfie + optional style → model proposes a coordinated look from this catalog → local code validates proposals → bounded image generation → compare actual images → explain actual changes.
 
-```
-photo
-→ user selects an optional style (Auto is the default)
-→ detect facial landmarks, visible regions and continuous color/shape measurements
-→ Auto uses measured triggers and confidence ranking
-→ a named style uses its style-specific technique rules; measurements gate visibility and safety
-→ optional additions for named styles come only from that style's curated options
-→ keep at most 7 techniques in total
-→ record whether each technique came from the style recipe or a measured trigger
-→ localized edit call executes the instruction
-```
+The model records what it sees, why each technique fits the whole look and how to apply it. It can preserve areas already suited to the look. Code keeps model priority and validates catalog membership, disabled entries, visibility, mutual exclusions, rendering caps and color-reference reliability. It never fills a quota, replaces the model's deltas, or adds a fixed style recipe. At most seven proposals are permitted. Four useful changes are an aspiration, not a hard minimum.
 
-**Design principles this table follows** (do not violate when extending it):
-
-1. Trigger conditions are continuous, measured facial/color features — never skin tone, ethnicity, or any demographic label.
-2. Color adjustments are always relative deltas against the user's own detected color value — never a fixed target color/shade.
-3. Auto uses general measured-opportunity selection. A named style uses its own rules to choose the makeup techniques that create that look; original-photo measurements, visibility, confidence and landmarks gate whether a selected technique is available and safe. Generic Auto trigger matches cannot be appended to a named-style plan. Never claim a facial deficit as the reason for a style technique.
-4. Every technique must be reversible/non-permanent makeup guidance, not a geometry change to the face itself.
-5. Test set validation (Phase 1) must confirm each trigger's measured threshold performs consistently across a range of skin tones and face shapes — this table assumes detection is reliable, it does not compensate for detection bias.
-
----
-
-## Rules for implementing this table (read before writing selection logic)
-
-**Cross-region selection cap.** The product owner revised the limit to **7** per job, across *all* regions combined, not per region. A single photo can produce candidates in several regions. Selection logic must therefore:
-1. Auto ranks measured opportunities by confidence. A named style selects from its style-specific recipe and optional rule list. Recipe placements need visible anatomy, confidence and geometry safety, not a defect trigger; recipe colors use a capped relative delta on a confidently visible feature.
-2. Apply each region's mutual-exclusivity rules (e.g. `lips_01` vs `lips_04`) so techniques in one area do not conflict.
-3. For named styles, optional techniques must be listed for that style and pass its applicable rules. Do not append other generic trigger matches.
-4. Keep at most 7 techniques. A style may have more than four when its look requires it; do not pad with unrelated techniques just to reach a quota.
-
-**Product-owner revision:** aim for at least four *visibly changed areas* on a usable selfie, while retaining the maximum of seven techniques. Planning aims for four distinct areas when visible. A selected technique is still only an intention; post-generation comparison must verify what actually appeared. The trial thresholds remain uncalibrated.
-
-### v1.4 style-polish entries
-
-These earlier entries provide visibility-only placement options; v1.5 introduced named-style recipes instead of waiting for generic corrective matches to leave unused slots.
-
-Auto uses the generic measurement-led selection flow. Named styles use their own curated technique rules, with photo analysis and landmarks checking region visibility, confidence, color caps, eye-opening limits and other geometry protections. A style technique does not require a measured “defect”; a generic Auto trigger cannot add an unrelated technique to the named-style plan. Color recipes remain small relative OKLCH deltas, require confidently visible lips and are never fixed product shades. Style intensity values and color deltas are provisional rendering controls, not professionally calibrated standards.
-
-### Style technique rules
-
-For named styles, the recipe column below is selected when its regions are confidently visible; it does not depend on defect thresholds. Optional techniques are curated per style and remain subject to their stated measurements. The selector never adds unrelated generic trigger matches. Auto keeps confidence-first measured selection. `style_baseline_styles` enables a placement only for its listed styles. All styles retain confidence, visibility, geometry, conflict and color-cap checks.
-
-| style | primary style recipe / preference order | additional corrective trigger overrides |
-|---|---|---|
-| Auto | `eyeliner_05`, `eyeshadow_07`, `brow_06`, `lips_02`, `blush_01`, `nose_02`, `foundation_02` | None; default thresholds and confidence-first measured ranking |
-| Natural | `eyeshadow_07`, `brow_06`, `eyeliner_05`, `lips_01`; then `lips_04`, `lips_02`, `blush_01`, `foundation_02`, `nose_02` | `lips_04`: chroma dominance >0.80 |
-| Work / Polished | `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_01`; then `brow_04`, `foundation_01`, `foundation_02`, `blush_01` | `foundation_01`: under-eye darkness >0.40; `brow_04`: density-gap score >0.78 |
-| Korean Soft | `eyeshadow_07`, `blush_01`, `eyeliner_05`, `lips_01`; then `brow_08`, `foundation_02`, `nose_02` | `brow_08`: brow-edge definition < table threshold |
-| Fresh | `blush_01`, `lips_01`, `eyeshadow_07`, `eyeliner_05`; then `brow_06`, `foundation_02`, `nose_02` | None |
-| Date Night | `eyeliner_02` (.68), `eyeshadow_02` (.62), `brow_06` (soft lower-edge definition), `lips_01` (ΔC +.035), `blush_01` | No defect trigger for the recipe; selected regions must be confidently visible |
-| Sophisticated | `brow_06`, `eyeliner_05`, `eyeshadow_07`, `lips_01`; then `brow_05`, `lips_03`, `nose_02`, `foundation_02` | `brow_05`: tail-fade score >0.65; `lips_03`: undertone hue gap >7° |
-| Soft Glam | `eyeshadow_02` (.58), `eyeliner_05`, `blush_01`, `lips_01`; then `eyeshadow_07`, `brow_06`, `nose_02`, `foundation_02` | None required for recipe |
-
-The intensity multipliers from v1.3 were removed. Their per-style percentages were not grounded in professional artistry references or image-set calibration; the named-style mask allowance remains the mechanism for broader placement. Trigger thresholds are still provisional engineering experiments, not professional standards or universal beauty measurements.
+A visibility confidence of 0.85 is still an availability gate; it is not a calibrated beauty score. Geometry is checked with local landmarks and bounded masks. Color deltas and placement intensities remain bounded rendering controls, with no claim of professional calibration.
 
 ### Art-direction review against professional references
 
@@ -203,42 +152,28 @@ Brows are a high-importance region for this product, and they carry an identity 
 
 ---
 
-## JSON schema (for direct use in the planning AI's structured output / function-calling definition)
+## Production planning schema
+
+`LookDesign.model_json_schema()` is sent to the model. The response contains `look_direction`, seven anatomical `visibility` entries, `lighting_gate`, `color_references`, `proposals` and `preserved_areas`. A proposal looks like:
 
 ```json
 {
-  "region_id": "eyeliner | eyeshadow | brows | lips | blush | nose_contour | foundation",
-  "technique_id": "string — must match an id in this table",
-  "measured_feature": "string — the detected value that triggered this match",
-  "measured_value": "number — the actual detected value",
-  "threshold_used": "number — the trigger threshold from this table",
-  "intensity": "number 0.0–1.0 — feeds into compositing blend_strength, not into how hard the edit call tries",
-  "instruction_text": "string — filled from instruction_template, may be lightly reworded but must preserve technique meaning",
-  "adjustment_type": "placement | color",
-  "color_delta": {
-    "color_space": "OKLCH",
-    "delta_lightness": "number, |value| <= MAX_DELTA_L",
-    "delta_chroma": "number, |value| <= MAX_DELTA_C",
-    "delta_hue_degrees": "number, |value| <= MAX_DELTA_H_DEGREES"
-  },
-  "detection_confidence": "number 0.0–1.0 — undertone_confidence or iris_detection_confidence for hue-based entries"
+  "technique_id": "brow_04",
+  "observation": "Small gaps are visible toward the brow tail.",
+  "style_reason": "Softly filling those gaps balances the richer evening lip.",
+  "application": "Add fine strokes inside the existing brow outline.",
+  "intensity": 0.4,
+  "color_delta": null,
+  "target_side": "both"
 }
 ```
 
-Each output object must be traceable to exactly one table row (`technique_id`). The planning AI should not be permitted to emit `instruction_text` without a matching `technique_id` — reject and drop the suggestion server-side if the pair doesn't resolve to a table entry.
+Color proposals instead provide a relative OKLCH delta and null intensity. Model application text supplements the canonical catalog instruction within its bounds. Final user instructions are still generated from the actual original/enhanced pair, not copied from this proposal.
 
----
+## Open items for visual validation
 
-## Open items for Phase 1 spike
-
-- Confirm exact numeric thresholds for every `measured_feature` (this table intentionally leaves them as "above/below threshold" — the actual cutoff values are empirical and must come from spike testing against a skin-tone/face-shape-diverse test set, per Section 27).
-- Confirm `lip_skin_contrast_ratio` and `under_eye_darkness_score` detection remains reliable across a range of skin tones specifically — these are the two features most likely to be affected by known bias patterns in vision models, flagged separately for priority testing.
-- `[COLOR]` entries: `color_delta` must be present when `adjustment_type` is `color`, and the server must reject any object whose deltas exceed the caps. Tune `MAX_DELTA_L`, `MAX_DELTA_C`, `MAX_DELTA_H_DEGREES` empirically in Phase 1. The placeholder values in the Color adjustment rules are guesses.
-- Undertone estimation (`undertone_confidence`) and iris detection (`iris_detection_confidence`) are the least reliable measurements in this table. They are lighting-sensitive and likely to vary across skin tones and eye colors. Test them first, on the diverse test set, before enabling `lips_03`, `eyeshadow_05`, `eyeshadow_06` and `brow_03`. If the lighting gate fails often, ship MVP with only the lightness/chroma color entries and leave hue shifting disabled.
-- Brows are a new region relative to the original three-region design (Section 16 of the main design doc). The product owner has confirmed brow shape and color are important, so treat brows as in MVP scope. The main design doc's allowed-region list (Sections 5 and 16) must be updated to include brows when the doc is next revised.
-- Brow detection is the main technical risk for this region. Light, blond or gray brows have low contrast against the skin, sparse brows are hard to segment as hair, and bangs, glasses or hats can occlude them. Test these cases specifically, on the diverse test set, before enabling any brow entry. Confirm `brow_density_gap_score` and `brow_hair_lightness_gap` are reliable across skin tones and brow colors.
-- Tune the brow geometric caps (`MAX_BROW_MASK_MARGIN_IED`, `MAX_TAIL_EXTEND_IED`, `MAX_THICKNESS_INCREASE_RATIO`) empirically. The placeholder values are guesses.
-- Confirm the brow drift validation (Brow-specific rules, item 5) catches real drift without failing normal edits, and keep `brow_07` disabled until it does.
-- Evaluate deterministic recolor versus generative edit for `[COLOR]` entries (Color adjustment rules, item 7).
-- Nose contour and foundation regions are new relative to the original three-region design (Section 16) — confirm these are in intended MVP scope before implementation, or move them to Section 26 (Future Features) if not.
-- Table is intentionally small (3–4 entries per region). Expand only after real usage/feedback data (Section 23) identifies gaps — do not pre-build exhaustive coverage speculatively.
+- Test whether model observations and style choices are consistent across repeated analyses and varied skin tones, eye shapes, brow colors and existing makeup.
+- Inspect actual visual improvement and style coherence on saved original/enhanced pairs. Passing structural validation does not establish either.
+- Calibrate rendering caps and visibility/reference reliability with real examples; these controls do not eliminate all model mistakes.
+- Validate sensitive hair/iris/undertone color references under varied lighting. Unreliable references must block affected hue techniques.
+- Retain landmark checks, eye-opening protection, localized masks and texture preservation. A declared observation is not proof that the generated image followed it.

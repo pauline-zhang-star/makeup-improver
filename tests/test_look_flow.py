@@ -73,7 +73,7 @@ class Provider:
         enhanced.paste((180, 80, 90), (200, 320, 300, 350))
         return enhanced
 
-    def explain_changes(self, original, enhanced):
+    def explain_changes(self, original, enhanced, evidence=None):
         self.calls.append(('explain', original, enhanced))
         if self.fail:
             raise SpikeError('EXPLANATION_FAILED', 'Steps unavailable.')
@@ -109,7 +109,7 @@ def test_styles_are_forwarded_to_planning_and_editing(image, style):
 
 def test_auto_brief_requests_cosmetic_shape_without_anatomical_edit():
     prompt = enhancement_prompt(MakeupStyle.AUTO)
-    assert 'soft everyday polish' in prompt
+    assert 'light, soft everyday makeup' in prompt
     assert 'brow arch' in prompt and 'bridge highlight' in prompt
     assert 'cupid bow' in prompt and 'fuller' in prompt
     assert 'face reshaping' in prompt and 'mouth open or closed exactly' in prompt
@@ -125,7 +125,8 @@ def test_auto_brief_requests_cosmetic_shape_without_anatomical_edit():
 def test_named_style_relaxes_cosmetic_rendering_without_relaxing_safety_rules():
     prompt = enhancement_prompt(MakeupStyle.KOREAN_SOFT)
     assert 'wider permitted selected-technique mask' in prompt
-    assert 'moderately stronger pigment placement' in prompt
+    assert 'at its own target intensity' in prompt
+    assert 'does not automatically mean darker makeup' in prompt
     assert 'a decrease in eye opening' in prompt
     assert 'visible iris or eye white' in prompt
     assert 'clearly visible but sheer youthful pink flush' in prompt
@@ -265,6 +266,29 @@ def test_enhancement_prompt_uses_preselected_technique(image):
     assert 'bounded continuous makeup area' in prompt
     assert 'Wrinkles may look softer' in prompt
     assert 'never erase, blur, airbrush or reconstruct age cues' in prompt
+
+
+def test_rejected_model_plan_makes_no_image_or_comparison_calls(image):
+    from makeup_refine.model_planning import validate_design
+    provider = Provider()
+    rejected = validate_design({
+        'look_direction': 'Keep the existing look.',
+        'visibility': {r: {'value': True, 'detection_confidence': .95} for r in
+                       ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush', 'nose_contour', 'foundation')},
+        'lighting_gate': {'value': True, 'detection_confidence': .95},
+        'proposals': [{'technique_id': 'unknown_technique', 'intensity': .3,
+                       'observation': 'Visible brow tail.', 'style_reason': 'Balanced frame.',
+                       'application': 'Fill sparse gaps.'}],
+    })
+    provider.plan_techniques = lambda original, style, points: rejected
+    enhanced, result = LookPipeline(provider, provider, Detector()).run(image)
+    assert result['status'] == 'planning_rejected'
+    assert result['comparisonStatus'] == 'skipped_invalid_plan'
+    assert result['rejectedProposals'][0]['reason'] == 'unknown_technique'
+    assert result['planningMode'] == 'model_visual_reasoning_v1'
+    assert result['aestheticThresholdsUsed'] is False
+    assert result['imageEditCalls'] == 0 and provider.calls == []
+    assert np.array_equal(enhanced, image)
 
 
 def test_identical_pair_skips_paid_comparison(image):
@@ -412,15 +436,15 @@ def test_provider_sends_original_then_both_images_without_advice(image):
 def test_provider_plans_from_original_before_any_edit(image):
     requests = []
     answer = {
-        'measurements': {
-            'brow_density_gap_score': {'value': .9, 'detection_confidence': .98},
-            'brow_visibility': {'value': .99, 'detection_confidence': .98},
-        },
-            'visibility': {region: {'value': region == 'brows', 'detection_confidence': .98}
-                           for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
-                                          'nose_contour', 'foundation')},
+        'look_direction': 'Soft everyday definition, retaining the existing lip and eye makeup.',
+        'visibility': {region: {'value': region == 'brows', 'detection_confidence': .98}
+                       for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
+                                      'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .98},
-        'proposals': [{'technique_id': 'brow_04', 'intensity': .4}],
+        'proposals': [{'technique_id': 'brow_04', 'intensity': .4,
+                       'observation': 'The outer brow has visible small gaps.',
+                       'style_reason': 'A softly filled brow balances the existing lip makeup.',
+                       'application': 'Fill only the gaps with fine strokes inside the current outline.'}],
     }
     def handler(request):
         requests.append(request)
@@ -437,24 +461,25 @@ def test_provider_plans_from_original_before_any_edit(image):
     assert plan.max_total_suggestions == 7
     assert len(requests) == 1 and requests[0].url.path.endswith('chat/completions')
     body = json.loads(requests[0].content)
+    assert body['response_format']['type'] == 'json_schema'
+    assert body['response_format']['json_schema']['strict'] is True
     assert 'at most seven' in body['messages'][0]['content']
     assert body['messages'][1]['content'][1]['image_url']['url'].startswith('data:image/png;base64,')
 
 
-def test_named_style_recipe_is_selected_locally_without_a_defect_proposal(image):
-    image = image.resize((768, 1024))
+def test_named_style_uses_model_proposals_without_recipe_or_score_replacement(image):
     answer = {
-        'measurements': {
-            'lip_skin_contrast_ratio': {'value': .38, 'detection_confidence': .94},
-            'eye_tilt_angle': {'value': 3.47, 'detection_confidence': .92},
-            'eye_aspect_ratio': {'value': .246, 'detection_confidence': .96},
-            'crease_visibility': {'value': .52, 'detection_confidence': .95},
-        },
+        'look_direction': 'A richer lip balanced by soft brow definition.',
         'visibility': {region: {'value': True, 'detection_confidence': .98}
                        for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
                                       'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .98},
-        'proposals': [],
+        'proposals': [{'technique_id': 'lips_01', 'color_delta': {
+            'color_space': 'OKLCH', 'delta_lightness': .005, 'delta_chroma': .021,
+            'delta_hue_degrees': 0}, 'observation': 'Existing lip pigment is muted rose.',
+            'style_reason': 'A richer rose lip supports the evening eye makeup already present.',
+            'application': 'Apply pigment evenly inside the existing lip boundary.'}],
+        'preserved_areas': [{'region': 'brows', 'reason': 'The brows already frame the eyes clearly.'}],
     }
     requests = []
     def handler(request):
@@ -465,19 +490,22 @@ def test_named_style_recipe_is_selected_locally_without_a_defect_proposal(image)
     provider.client = httpx.Client(base_url='https://api.openai.com/v1/',
                                    transport=httpx.MockTransport(handler))
     try:
-        plan = provider.plan_techniques(image, MakeupStyle.DATE_NIGHT,
-                                        Detector().detect(image)[0])
+        plan = provider.plan_techniques(image, MakeupStyle.DATE_NIGHT, Detector().detect(image)[0])
+        saved = provider.last_technique_analysis
     finally:
         provider.close()
-    assert [item['technique_id'] for item in plan.selected[:5]] == [
-        'eyeliner_02', 'eyeshadow_02', 'brow_06', 'lips_01', 'blush_01']
-    assert all(item['selection_basis'] == 'style_recipe' for item in plan.selected[:5])
-    assert [item['intensity'] for item in plan.selected[:2]] == [.68, .62]
-    assert plan.selected[3]['color_delta']['delta_chroma'] == .035
+    assert [item['technique_id'] for item in plan.selected] == ['lips_01']
+    assert plan.selected[0]['color_delta']['delta_chroma'] == .021
+    assert plan.selected[0]['observation'] == answer['proposals'][0]['observation']
+    assert plan.preserved_areas == answer['preserved_areas']
+    assert saved['analysis_schema'] == plan.selection_method == 'model_visual_reasoning_v1'
     prompt = json.loads(requests[0].content)['messages'][0]['content']
-    assert 'local selector directly adds the core style recipe' in prompt
-    assert 'style-led flow, not the generic Auto defect-correction flow' in prompt
-    assert 'Never propose an unlisted generic correction' in prompt
+    assert 'Date Night' in prompt and 'There is no fixed technique recipe' in prompt
+    assert 'lip_skin_contrast_ratio' not in prompt
+    assert 'below_threshold' not in prompt
+    edit_prompt = enhancement_prompt(MakeupStyle.DATE_NIGHT, plan)
+    assert answer['look_direction'] in edit_prompt
+    assert answer['proposals'][0]['application'] in edit_prompt
 
 
 def test_small_photo_uses_same_input_and_output_canvas_with_protected_padding():

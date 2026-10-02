@@ -1,6 +1,7 @@
 """Local technique-planned image flow. Legacy experiments live in legacy_cli."""
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 from PIL import Image
@@ -210,7 +211,12 @@ def main():
             save_review(directory, original, enhanced, {**report, **failure, 'steps': []})
         print(json.dumps(failure), file=sys.stderr)
         return 1
-    except (OSError, ValueError, ImportError, RuntimeError):
+    except (OSError, ValueError, ImportError, RuntimeError) as exc:
+        if os.environ.get('MAKEUP_DIAGNOSTICS') == '1' and (directory is None or original is None):
+            # The public adapter only enables this before any provider call, so
+            # startup failures can be diagnosed without logging image contents.
+            print(json.dumps({'preflightErrorType': type(exc).__name__,
+                              'preflightError': str(exc)[:600]}), file=sys.stderr)
         failure = {'status': 'failed', 'errorCode': 'CONFIGURATION_ERROR',
                    'message': 'Check dependencies, model names, local files and API key configuration.'}
         if directory is not None and original is not None and not args.retry_instructions:

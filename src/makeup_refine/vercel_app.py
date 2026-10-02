@@ -167,6 +167,7 @@ class VercelHandler(WebHandler):
             os.chmod(upload, 0o600)
             env = os.environ.copy()
             env['MPLCONFIGDIR'] = '/tmp/mpl'
+            env['MAKEUP_DIAGNOSTICS'] = '1'
             command = [sys.executable, '-m', 'makeup_refine.cli', str(upload),
                        '--output', str(output), '--style', style.value,
                        '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
@@ -186,6 +187,10 @@ class VercelHandler(WebHandler):
 
             result_file = output / 'result.json'
             if not result_file.is_file():
+                # No report means failure happened before a provider was created.
+                # Native MediaPipe errors are otherwise lost with the /tmp worker.
+                print('makeup_preflight_failure', completed.returncode,
+                      completed.stderr.decode(errors='replace')[-1800:], flush=True)
                 guard().event('generation_failed', visitor, job_id=job_id,
                               detail=f'worker_exit_{completed.returncode}')
                 self.respond(502, {'error': 'The image workflow stopped before saving a result.'}, cookie=cookie)

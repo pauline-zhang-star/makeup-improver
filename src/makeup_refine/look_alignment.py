@@ -54,8 +54,13 @@ def register_direct_candidate(original, candidate, reference_points, detector, e
     center_shift = float(np.linalg.norm((linear @ center + (tx, ty) - center) / dimensions))
     report.update(scale=scale, rotationDegrees=angle, translationPixels=[float(tx), float(ty)],
                   landmarkResidualAfterFit=residual, maxLandmarkResidualAllowed=.015)
-    if (rank < 4 or not .95 <= scale <= 1.05 or abs(angle) > 2 or
-            center_shift > .03 or residual > .015):
+    if rank >= 4 and (not .95 <= scale <= 1.05 or center_shift > .03) and residual <= .015:
+        report['failureType'] = 'provider_reframing'
+        report['faceScaleChangePercent'] = round((scale - 1) * 100, 1)
+        raise SpikeError('QUALITY_CHECK_FAILED',
+                         'The image model reframed the photo despite the edit mask; '
+                         'the returned face no longer matches the original position or scale.', report)
+    if (rank < 4 or abs(angle) > 2 or residual > .015):
         raise SpikeError('QUALITY_CHECK_FAILED',
                          'The candidate cannot be corrected with a small uniform camera transform.', report)
 

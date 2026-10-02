@@ -27,6 +27,7 @@ class ObservedStep(StrictModel):
     before: str = Field(min_length=1, max_length=400)
     after: str = Field(min_length=1, max_length=400)
     instruction: str = Field(min_length=1, max_length=700)
+    instruction_zh: Optional[str] = Field(default=None, max_length=700)
 
 
 class AreaComparison(StrictModel):
@@ -36,13 +37,14 @@ class AreaComparison(StrictModel):
     before: str = Field(min_length=1, max_length=400)
     after: str = Field(min_length=1, max_length=400)
     instruction: Optional[str] = Field(max_length=700)
+    instruction_zh: Optional[str] = Field(default=None, max_length=700)
 
     @model_validator(mode='after')
     def instruction_matches_evidence(self):
         if self.change == 'changed':
             if not self.instruction or not self.instruction.strip():
                 raise ValueError('A changed area needs a reproduction instruction.')
-        elif self.instruction is not None:
+        elif self.instruction is not None or self.instruction_zh is not None:
             raise ValueError('Unchanged or uncertain areas must not invent instructions.')
         return self
 
@@ -63,6 +65,7 @@ class LookComparison(StrictModel):
     def visible_steps(self):
         by_area = {a.area: a for a in self.assessments}
         return [ObservedStep(area=a.area, changed=True, confidence=a.confidence,
-                             before=a.before, after=a.after, instruction=a.instruction)
+                             before=a.before, after=a.after, instruction=a.instruction,
+                             instruction_zh=a.instruction_zh)
                 for area in LOOK_AREAS for a in [by_area[area]]
                 if a.change == 'changed' and a.confidence >= .8]

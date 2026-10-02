@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f1ec">
+  <title>Mirror · Makeup Studio</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Mirror 首页" data-i18n-aria="brandAria"><span class="brand-mark">m.</span><span>mirror</span></a>
+    <span class="top-note" data-i18n="topNote">YOUR MAKEUP, REIMAGINED</span>
+    <div class="top-actions"><div class="language-toggle" role="group" aria-label="语言 / Language"><button type="button" data-language="zh" aria-pressed="true">中文</button><button type="button" data-language="en" aria-pressed="false">EN</button></div><span class="local-pill"><span class="local-dot"></span> <span data-i18n="local">本机运行</span></span></div>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="eyebrow"><span data-i18n="eyebrow">PERSONAL MAKEUP STUDIO</span> <span></span> 01 / 03</div>
+        <h1 id="hero-title"><span class="hero-title-line" data-i18n="heroLine1">看见更适合</span><br><span class="hero-title-line" data-i18n="heroLine2">自己的</span><span data-i18n="heroLine3">妆容。</span></h1>
+        <p class="hero-lede" data-i18n="heroLede">上传一张清晰自拍，选择喜欢的风格。我们会根据你现在的妆容，设计一张可以对照、可以跟着化的效果图。</p>
+        <div class="hero-points"><span data-i18n="point1">保留你的样子</span><i></i><span data-i18n="point2">按原妆调整</span><i></i><span data-i18n="point3">逐步教你实现</span></div>
+      </div>
+      <div class="hero-aside" aria-hidden="true"><div class="orb orb-one"></div><div class="orb orb-two"></div><span data-i18n="aside">YOUR LOOK, MORE YOU.</span></div>
+    </section>
+
+    <div class="workspace">
+      <section class="setup card" aria-labelledby="start-title">
+        <div class="section-heading"><span class="section-num">01</span><div><p class="kicker" data-i18n="startKicker">START HERE</p><h2 id="start-title" data-i18n="yourPhoto">你的照片</h2></div></div>
+        <label class="dropzone" id="dropzone" for="photo-input">
+          <input id="photo-input" type="file" accept="image/jpeg,image/png" hidden>
+          <img id="photo-preview" alt="待上传照片预览" data-i18n-alt="previewAlt" hidden>
+          <span id="upload-placeholder" class="upload-placeholder"><span class="upload-icon">＋</span><strong data-i18n="upload">点击或拖放自拍照</strong><small data-i18n="uploadLimit">JPG / PNG · 最大 12 MB</small></span>
+          <span class="photo-action" id="photo-action" data-i18n="changePhoto" hidden>更换照片</span>
+        </label>
+        <p class="field-hint" data-i18n="photoHint">建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先在本机裁剪；点击生成后将工作图发送给 OpenAI API。</p>
+
+        <div class="section-heading style-heading"><span class="section-num">02</span><div><p class="kicker" data-i18n="optional">OPTIONAL</p><h2 data-i18n="styleTitle">想要的风格</h2></div></div>
+        <p class="style-intro" data-i18n="styleIntro">没有想法？保持「Auto」，让 AI 根据照片选择。</p>
+        <div class="styles" id="styles" role="radiogroup" aria-label="妆容风格" data-i18n-aria="styleAria"></div>
+        <button id="generate" class="generate" type="button" disabled><span data-i18n="generate">生成我的妆容</span><span aria-hidden="true">↗</span></button>
+        <p id="quota-status" class="quota-status" role="status" hidden></p>
+        <p class="submit-note" data-i18n="submitNote">生成通常需要几分钟。上传质量不合格会在调用图片 API 前提示重拍。</p>
+      </section>
+
+      <section class="result card" id="result-section" aria-labelledby="result-title">
+        <div class="section-heading"><span class="section-num">03</span><div><p class="kicker" data-i18n="resultKicker">YOUR RESULT</p><h2 id="result-title" data-i18n="resultTitle">焕新的你</h2></div></div>
+        <div id="empty-state" class="empty-state"><div class="empty-art"><div></div><div></div><div></div></div><strong data-i18n="emptyTitle">效果会在这里出现</strong><p data-i18n="emptyBody">选择照片，开启一次为你设计的妆容体验。</p></div>
+        <div id="progress" class="progress-panel" hidden><div class="spinner"></div><strong id="progress-title" data-i18n="preparing">正在准备照片</strong><p id="progress-detail" data-i18n="progressInitial">我们会先分析当前妆容，再生成效果图。</p><div class="progress-track"><span id="progress-fill"></span></div><ol class="progress-steps"><li id="step-upload" data-i18n="stepUpload">照片检查</li><li id="step-plan" data-i18n="stepPlan">选择技法</li><li id="step-create" data-i18n="stepCreate">生成图片</li><li id="step-compare" data-i18n="stepCompare">核对变化</li></ol></div>
+        <div id="outcome" hidden>
+          <div id="status-banner" class="status-banner" role="status"></div>
+          <div id="comparison" class="comparison" hidden>
+            <div id="photo-stage" class="photo-stage" role="group" aria-label="原图与生成图对比，点击照片或拖动分界线" data-i18n-aria="stageAria">
+              <img id="before-image" alt="原始照片" data-i18n-alt="beforeAlt">
+              <div id="after-pane" class="after-pane"><img id="after-image" alt="生成的妆容照片" data-i18n-alt="afterAlt"><svg id="annotation-lines" aria-hidden="true"></svg><div id="annotation-badges" class="annotation-badges" aria-hidden="true"></div></div>
+              <span id="divider" class="divider"><span>‹ ›</span></span>
+              <span class="image-tag tag-before" data-i18n="beforeTag">BEFORE</span><span class="image-tag tag-after" data-i18n="afterTag">AFTER</span>
+            </div>
+            <input id="compare-range" type="range" min="0" max="100" value="50" aria-label="拖动查看原图和妆容效果" data-i18n-aria="rangeAria">
+            <div class="compare-hint"><span data-i18n="beforeTag">原图</span><span data-i18n="compareHint">点击照片任意位置，或按住拖动</span><span data-i18n="afterTag">生成图</span></div>
+          </div>
+          <div id="guidance" class="guidance" hidden><div class="guidance-heading"><div><p class="kicker" data-i18n="detailsKicker">THE DETAILS</p><h3 id="guidance-title" data-i18n="guidanceTitle">怎样化出这个妆</h3></div><span id="guide-count"></span></div><p id="legacy-guide-note" class="field-hint" hidden></p><ol id="guide-list"></ol></div>
+          <div id="audit" class="audit" hidden><div class="audit-heading"><span data-i18n="auditTitle">本次记录</span><button id="audit-toggle" type="button" aria-expanded="false"></button></div><div id="audit-body" hidden></div></div>
+          <a id="uploaded-link" class="full-review" target="_blank" rel="noopener" data-i18n="uploadedLink" hidden>查看未裁剪的上传图 ↗</a>
+          <a id="full-review" class="full-review" target="_blank" rel="noopener" data-i18n="fullReview" hidden>查看完整测试记录 ↗</a>
+        </div>
+      </section>
+    </div>
+  </main>
+  <footer><span>mirror / makeup studio</span><span data-i18n="footer">为你设计 · 由你决定</span></footer>
+</body>
+</html>

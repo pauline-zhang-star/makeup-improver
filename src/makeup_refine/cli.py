@@ -12,6 +12,7 @@ from .models import SpikeError
 from .report import write_report
 from .api_usage import attach_usage
 from .trial_trace import TrialTrace, trace_for_report
+from .photo_framing import frame_photo
 
 
 def save_review(directory, original, enhanced, report):
@@ -138,16 +139,21 @@ def main():
         else:
             if args.output.exists():
                 raise SpikeError('OUTPUT_EXISTS', 'Choose a new output directory to avoid mixing sessions.')
-            original = load_image(args.image)
+            source = load_image(args.image)
             args.output.mkdir(parents=True, mode=0o700)
             directory = args.output
+            from .landmarks import MediaPipeLandmarks
+            detector = MediaPipeLandmarks(str(args.landmark_model))
+            original, input_crop = frame_photo(source, detector)
+            if input_crop:
+                source.save(directory / 'uploadedImage.png')
             original.save(directory / 'originalImage.png')
             report = {'status': 'generating', 'steps': [], 'requestedStyle': args.style,
                       'visionModel': args.vision_model, 'editModel': args.edit_model,
                       'provider': 'openai'}
+            if input_crop:
+                report.update(inputCrop=input_crop, uploadedImage='uploadedImage.png')
             save_review(directory, original, None, report)
-            from .landmarks import MediaPipeLandmarks
-            detector = MediaPipeLandmarks(str(args.landmark_model))
             provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
             attach_usage(provider, directory, report)
             provider.trial_trace = TrialTrace(directory)

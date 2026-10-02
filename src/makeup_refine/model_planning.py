@@ -66,15 +66,16 @@ class ObservedTechnique(TechniqueProposal):
     observation: str = Field(min_length=1, max_length=600)
     style_reason: str = Field(min_length=1, max_length=600)
     application: str = Field(min_length=1, max_length=600)
+    application_zh: Optional[str] = Field(default=None, max_length=600)
     target_side: Optional[Literal['left', 'right', 'both']] = Field(
         default=None, description='Left/right refer to the side of the image as viewed, not anatomical side.')
 
-    @field_validator('observation', 'style_reason', 'application')
+    @field_validator('observation', 'style_reason', 'application', 'application_zh')
     @classmethod
     def meaningful_text(cls, value):
-        if not value.strip():
+        if value is not None and not value.strip():
             raise ValueError('An observation, style reason and application are required.')
-        return value.strip()
+        return value.strip() if value is not None else None
 
 
 class PlacementTechnique(ObservedTechnique):
@@ -240,7 +241,8 @@ def validate_design(design, catalog=None):
             'technique_id': tid, 'region': region, 'technique': entry['technique'],
             'adjustment_type': entry['adjustment_type'], 'instruction': entry['instruction_template'],
             'observation': proposal.observation, 'style_reason': proposal.style_reason,
-            'application': proposal.application, 'target_side': proposal.target_side,
+            'application': proposal.application, 'application_zh': proposal.application_zh,
+            'target_side': proposal.target_side,
             'structured_evidence': proposal.structured_evidence.model_dump(),
             'selection_basis': 'model_visual_reasoning',
             'detection_confidence': design.visibility[region].detection_confidence,
@@ -351,6 +353,8 @@ def planning_prompt(style, catalog=None):
         'For each proposal provide observation (what is actually visible in the original, including '
         'existing makeup), style_reason (why this change supports the whole chosen look), and application '
         '(where and how to apply this catalog technique on this photo, within its bounds). '
+        'Also give application_zh as a concise Simplified Chinese version of the SAME application; '
+        'do not add an extra technique or change its strength in translation. '
         'In style_reason, explain how the chosen direction and strength support both the requested '
         'style and the balance with other facial areas, not merely how they enhance this area alone. '
         'Provide an overall look_direction identifying the intended visual emphasis, the supporting '

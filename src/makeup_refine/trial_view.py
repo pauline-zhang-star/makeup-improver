@@ -12,6 +12,9 @@ def trial_details_html(report, directory=None):
     body = '<section><h2>测试流程记录</h2><p>状态：' + escape(report['status']) + '</p>'
     if report.get('message'):
         body += '<p class="notice">' + escape(report['message']) + '</p>'
+    if report.get('inputCrop'):
+        body += '<p class="notice">已在本机裁剪输入构图；滑动对比的原图是实际送入模型的裁剪图。上传文件未被覆盖。</p>'
+        body += details('输入照片裁剪范围与原因', report['inputCrop'])
     if report.get('inputQuality'):
         body += details('上传照片局部细节检查（试验阈值）', report['inputQuality'])
     body += '<h3>1. 技法选择与依据</h3>'

@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: makeup-improver
+    runtime: docker
+    plan: 1c-2g
+    region: ohio
+    healthCheckPath: /health
+    disk:
+      name: quota-and-access-log
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: MAKEUP_PUBLIC_MODE
+        value: "1"
+      - key: MAKEUP_TEMP_DIR
+        value: /tmp/makeup-refine
+      - key: MAKEUP_STATE_DB
+        value: /var/data/access.sqlite3
+      - key: MAKEUP_VISITOR_SECRET
+        generateValue: true
+      - key: MAKEUP_VISITOR_DAILY_LIMIT
+        value: "2"
+      - key: MAKEUP_GLOBAL_DAILY_LIMIT
+        value: "20"
+      - key: OPENAI_API_KEY
+        sync: false

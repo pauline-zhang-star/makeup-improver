@@ -231,6 +231,16 @@ def test_all_eight_areas_supported():
         LookComparison(assessments=assessments([step()])[:-1], preservationIssues=[])
 
 
+def test_comparison_keeps_bilingual_instruction_for_the_same_visible_change():
+    data = assessments([step('lips')])
+    next(item for item in data if item['area'] == 'lips')['instruction_zh'] = '沿上唇边缘描画同色唇线，再向内晕染。'
+    result = LookComparison(assessments=data, preservationIssues=[])
+    assert result.visible_steps()[0].instruction_zh == '沿上唇边缘描画同色唇线，再向内晕染。'
+    data[0]['instruction_zh'] = '未改变却添加了指导。'
+    with pytest.raises(ValidationError):
+        LookComparison(assessments=data, preservationIssues=[])
+
+
 def test_no_change_does_not_fabricate_instructions(image):
     provider = Provider([])
     _, result = LookPipeline(provider, provider, Detector()).run(image)
@@ -623,6 +633,40 @@ def test_cli_generates_saves_pair_and_retries_comparison_only(tmp_path, image, m
     assert (output / 'originalImage.png').read_bytes() == original_bytes
     assert (output / 'enhancedImage.png').read_bytes() == enhanced_bytes
     assert [c[0] for c in provider.calls] == ['plan', 'enhance', 'explain', 'explain']
+
+
+def test_cli_crops_clear_screenshot_frame_before_model_calls(tmp_path, image, monkeypatch):
+    from makeup_refine import cli
+    import makeup_refine.providers
+    import makeup_refine.landmarks
+    photo = tmp_path / 'screenshot.png'
+    framed = Image.new('RGB', (image.width, image.height + 300), 'black')
+    framed.paste(image, (0, 150))
+    framed.save(photo)
+    provider = Provider()
+    provider.close = lambda: None
+    original_plan = provider.plan_techniques
+    def checked_plan(photo, style, points):
+        assert photo.size == image.size
+        return original_plan(photo, style, points)
+    provider.plan_techniques = checked_plan
+    detector = Detector()
+    detector.close = lambda: None
+    monkeypatch.setattr(makeup_refine.providers, 'OpenAIProvider', lambda *args: provider)
+    monkeypatch.setattr(makeup_refine.landmarks, 'MediaPipeLandmarks', lambda *args: detector)
+    monkeypatch.setattr(cli, 'get_api_key', lambda: 'test-only')
+    output = tmp_path / 'result'
+    monkeypatch.setattr('sys.argv', ['makeup-refine', str(photo), '--output', str(output),
+                                  '--landmark-model', 'unused', '--vision-model', 'vision', '--edit-model', 'edit'])
+    assert cli.main() == 0
+    with Image.open(output / 'originalImage.png') as working:
+        assert working.size == image.size
+    with Image.open(output / 'uploadedImage.png') as source:
+        assert source.size == framed.size
+    report = json.loads((output / 'result.json').read_text())
+    assert report['inputCrop']['cropBox'] == [0, 150, image.width, image.height + 150]
+    assert report['inputCrop']['reasons'] == ['paired_black_letterbox']
+    assert provider.calls[0][0] == 'plan'
 
 
 def test_missing_lips_is_rejected_instead_of_silently_accepted(image):

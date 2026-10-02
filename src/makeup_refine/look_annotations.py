@@ -80,9 +80,15 @@ def planned_review_steps(report):
         area = mapping.get(item['region'], item['region'])
         instruction = item.get('application') or item.get('instruction', '')
         if area not in grouped:
-            grouped[area] = {'area': area, 'instruction': instruction, 'technique_id': item['technique_id']}
+            grouped[area] = {'area': area, 'instruction': instruction,
+                             'instruction_zh': item.get('application_zh'),
+                             'technique_id': item['technique_id']}
         else:
             grouped[area]['instruction'] += ' ' + instruction
+            if grouped[area]['instruction_zh'] and item.get('application_zh'):
+                grouped[area]['instruction_zh'] += ' ' + item['application_zh']
+            else:
+                grouped[area]['instruction_zh'] = None
             grouped[area]['technique_id'] += ' + ' + item['technique_id']
     return list(grouped.values())
 

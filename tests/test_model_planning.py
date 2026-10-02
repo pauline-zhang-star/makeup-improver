@@ -53,6 +53,11 @@ def test_selects_only_model_actions_preserves_order_evidence_and_strength():
     assert plan.threshold_status=='aesthetic_thresholds_not_used'
 
 
+def test_selected_technique_keeps_chinese_application_for_review_only():
+    plan = validate_design(design([proposal(application_zh='沿原有眉形用细笔触填补空隙。')]))
+    assert plan.selected[0]['application_zh'] == '沿原有眉形用细笔触填补空隙。'
+
+
 def test_production_validator_never_calls_threshold_selector_or_filler(monkeypatch):
     def forbidden(*args, **kwargs): raise AssertionError('legacy path used')
     for name in ('select','_check','complete_placement_proposals','thresholds_for_style'):

@@ -65,6 +65,17 @@ def test_local_face_deformation_is_not_hidden_by_similarity_fit():
             LandmarkSequence(found.tolist()), Image.new('L', original.size))
 
 
+def test_large_uniform_reframe_is_identified_as_provider_failure():
+    original = Image.new('RGB', (512, 512), (100, 100, 100))
+    reference = np.asarray(Detector().detect(original)[0])
+    found = reference * 1.18 + (-.08, -.09)
+    with pytest.raises(SpikeError, match='reframed the photo') as error:
+        register_direct_candidate(original, original.copy(), reference,
+            LandmarkSequence(found.tolist()), Image.new('L', original.size))
+    assert error.value.details['failureType'] == 'provider_reframing'
+    assert error.value.details['faceScaleChangePercent'] == pytest.approx(18)
+
+
 def test_excessive_missing_frame_is_not_invented():
     original = Image.new('RGB', (512, 512), (100, 100, 100))
     reference = np.asarray(Detector().detect(original)[0])

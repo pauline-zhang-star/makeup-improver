@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+.venv*
+outputs
+models
+private-fixtures
+tests
+experiments
+docs
+__pycache__
+*.pyc
+.DS_Store

@@ -65,13 +65,17 @@ def test_identical_feature_pixels_override_detector_drift():
     assert audit['localPixelEvidence']['noseWidthPixels']['exactlyUnchanged']
 
 
-@pytest.mark.parametrize('width', [60., 140.])
-def test_cosmetic_mouth_width_is_diagnostic_only(monkeypatch, width):
+@pytest.mark.parametrize(('width', 'status'), [
+    (92., 'within_limit'), (108., 'within_limit'),
+    (91.9, 'needs_review'), (108.1, 'needs_review'),
+])
+def test_cosmetic_mouth_width_over_eight_percent_needs_review(monkeypatch, width, status):
     from makeup_refine import quality
     before = dict(leftEyeOpeningPixels=20., rightEyeOpeningPixels=20., noseWidthPixels=60., mouthWidthPixels=100.)
     after = dict(before, mouthWidthPixels=width)
     monkeypatch.setattr(quality, 'paired_facial_metrics', lambda *args: (before, after, {}))
     report = quality.validate_facial_proportions(None, None, None)
     assert 'mouthWidthPixels' not in report['facialProportionLimits']
-    assert report['diagnosticOnlyMeasurements'] == ['mouthWidthPixels']
+    assert report['mouthWidthReview']['status'] == status
+    assert report['mouthWidthReview']['relativeLimit'] == .08
     assert report['maxFacialProportionChange'] == 0

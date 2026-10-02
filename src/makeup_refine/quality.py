@@ -165,6 +165,7 @@ EYE_OPENING_RELATIVE_LIMIT = .06
 # rule below still forbids making either eye look smaller.
 STYLED_EYE_OPENING_RELATIVE_LIMIT = .08
 EYE_OPENING_MIN_RELATIVE_CHANGE = 0.0
+MOUTH_WIDTH_REVIEW_RELATIVE_LIMIT = .08
 
 
 def validate_facial_proportions(candidate, original, detector, max_relative_change=.05,
@@ -174,7 +175,9 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
     Eyeliner and double-eyelid makeup can change the measured eyelid opening a
     little without moving the eye or changing facial anatomy. Auto keeps the
     aperture increase to 6%; a named style may use up to 8% for a more visible
-    cosmetic treatment, but may never decrease either eye. Nose width remains at the supplied (normally 5%) limit in both modes. Mouth width is diagnostic only.
+    cosmetic treatment, but may never decrease either eye. Nose width remains
+    at the supplied (normally 5%) limit in both modes. Mouth width changes
+    beyond 8% require review because lip liner can alter the measured outline.
     """
     style_value = getattr(style, 'value', style)
     styled = style_value not in (None, 'Auto')
@@ -201,12 +204,20 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
         if changes[key] < EYE_OPENING_MIN_RELATIVE_CHANGE
     ]
     violations = sorted(set(magnitude_violations + eye_opening_decrease_violations))
+    mouth_change = changes['mouthWidthPixels']
+    mouth_review = abs(mouth_change) > MOUTH_WIDTH_REVIEW_RELATIVE_LIMIT + 1e-9
     reported = max(violations or limits,
                    key=lambda key: abs(changes[key]) / max(limits[key], 1e-6))
     report = {'measurementAlignment': measurement_alignment,
               'measurementUnits': 'pixels',
-              'diagnosticOnlyMeasurements': ['mouthWidthPixels'],
-              'mouthWidthPolicy': 'Cosmetic lip width is not a rejection or review criterion.',
+              'mouthWidthReview': {
+                  'status': 'needs_review' if mouth_review else 'within_limit',
+                  'relativeChange': mouth_change,
+                  'relativeLimit': MOUTH_WIDTH_REVIEW_RELATIVE_LIMIT,
+                  'reason': ('Lipstick or liner can change the measured outline; '
+                             'a change beyond 8% needs visual review, not automatic rejection.')
+                            if mouth_review else None,
+              },
               'facialProportionsBefore': before, 'facialProportionsAfter': after,
               'facialProportionRelativeChanges': changes,
               'maxFacialProportionChange': abs(changes[reported]),

@@ -369,6 +369,26 @@ def test_explanation_failure_keeps_image_and_retry_never_regenerates(image):
     assert [c[0] for c in provider.calls] == ['plan', 'enhance', 'explain', 'explain']
 
 
+def test_mouth_width_review_is_visible_without_rejecting_makeup(image, monkeypatch):
+    from makeup_refine import look_pipeline
+    original_check = look_pipeline.validate_facial_proportions
+
+    def with_mouth_review(*args, **kwargs):
+        report = original_check(*args, **kwargs)
+        report['mouthWidthReview'] = {
+            'status': 'needs_review', 'relativeChange': .081,
+            'relativeLimit': .08, 'reason': 'Inspect lip outline.',
+        }
+        return report
+
+    monkeypatch.setattr(look_pipeline, 'validate_facial_proportions', with_mouth_review)
+    enhanced, result = LookPipeline(Provider(), Provider(), Detector()).run(image)
+    assert enhanced is not None and result['status'] == 'completed'
+    assert result['mouthWidthReview']['status'] == 'needs_review'
+    assert any(item['area'] == 'lips' and '8%' in item['reason']
+               for item in result['pendingChangeReviews'])
+
+
 def test_preservation_issue_rejects_instructions(image):
     provider = Provider(issues=['glasses'])
     _, result = LookPipeline(provider, provider, Detector()).run(image)

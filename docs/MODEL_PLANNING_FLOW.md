@@ -122,10 +122,12 @@ is a provisional diagnostic label, not permission to shrink eyes. Thresholds
 for actual size change remain unchanged. This is still landmark-based, not
 independent eyelid/iris segmentation, and face-outline anchors can also drift.
 
-Cosmetic mouth width is diagnostic only (user-approved policy): lipstick and
-liner may widen or narrow the perceived outline within the selected mask and
-technique. Mouth-width values do not reject or request review. Mouth opening,
-teeth visibility, expression, and other geometry checks remain protected.
+Cosmetic mouth width uses an experimental ±8% review limit: lipstick and liner
+may widen or narrow the perceived outline within the selected mask and
+technique. A larger measured change is retained for visual review rather than
+automatically treated as anatomical deformation. The pixel-based measurement
+and exact-unchanged-pixel safeguard still apply. Mouth opening, teeth
+visibility, expression, and other geometry checks remain protected.
 
 ### Input detail and compositing boundaries (2026-10-01)
 

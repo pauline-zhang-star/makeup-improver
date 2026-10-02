@@ -50,6 +50,8 @@ def trial_details_html(report, directory=None):
         body += details('检查数值、偏移及所有诊断数据', attempt) + '</details>'
     if report.get('localPixelGeometryRecheck'):
         body += details('新像素测量本地复核（保留原始检查记录）', report['localPixelGeometryRecheck'])
+    if report.get('mouthWidthReview'):
+        body += details('唇宽 ±8% 待复核规则', report['mouthWidthReview'])
     body += '<h3>5. 最终对比与操作指导核对</h3>'
     body += details('逐部位视觉判断', report.get('assessments', []))
     body += details('局部像素证据', report.get('comparisonEvidence'))

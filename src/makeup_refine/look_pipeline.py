@@ -295,6 +295,16 @@ class LookPipeline:
         all_observed = {step['area'] for step in explanation['steps']}
         explanation['filteredUnplannedObservedAreas'] = sorted(all_observed - allowed_areas)
         explanation['steps'] = [step for step in explanation['steps'] if step['area'] in allowed_areas]
+        if proportions['mouthWidthReview']['status'] == 'needs_review':
+            change = proportions['mouthWidthReview']['relativeChange']
+            explanation.setdefault('pendingChangeReviews', []).append({
+                'area': 'lips',
+                'reason': (f'Measured mouth width changed {change:+.1%}, beyond the '
+                           '8% review limit. Lip liner can change the visible outline; '
+                           'inspect the paired images before accepting the lip shape.'),
+                'before': 'Original lip outline',
+                'after': 'Generated lip outline',
+            })
         coverage = summarize_observed_changes(explanation['steps'], plan.selected,
                                               metadata['allowedSupplementaryAreas'])
         coverage['displayedStepCount'] = len(explanation['steps'])

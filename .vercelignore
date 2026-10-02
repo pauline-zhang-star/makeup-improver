@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+.vercel
+.venv*
+outputs
+models
+private-fixtures
+tests
+experiments
+docs
+.pytest_cache
+__pycache__
+*.pyc
+.DS_Store

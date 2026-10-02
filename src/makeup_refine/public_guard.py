@@ -25,12 +25,44 @@ def next_utc_day(now=None):
     return datetime.combine(day + timedelta(days=1), datetime.min.time(), timezone.utc).isoformat()
 
 
-class AccessStore:
-    def __init__(self, path: Path, secret: str, visitor_limit=2, daily_limit=20):
-        if not secret or visitor_limit < 1 or daily_limit < 1:
-            raise ValueError('A secret and positive daily limits are required.')
-        self.path = Path(path)
+class SignedVisitors:
+    """Cookie identity shared by local SQLite and serverless quota stores."""
+
+    def __init__(self, secret: str):
+        if not secret:
+            raise ValueError('A visitor signing secret is required.')
         self.secret = secret.encode('utf-8')
+
+    def digest(self, value):
+        return hmac.new(self.secret, value.encode('utf-8'), hashlib.sha256).hexdigest()
+
+    def visitor(self, cookie_header):
+        jar = SimpleCookie()
+        try:
+            jar.load(cookie_header or '')
+            signed = jar[COOKIE_NAME].value if COOKIE_NAME in jar else ''
+            value, signature = signed.split('.', 1)
+            if (len(value) == 32 and len(signature) == 64
+                    and all(c in '0123456789abcdef' for c in value)
+                    and hmac.compare_digest(signature, self.digest('cookie:' + value))):
+                return value, None
+        except (ValueError, IndexError, CookieError):
+            pass
+        value = secrets.token_hex(16)
+        return value, f'{value}.{self.digest("cookie:" + value)}'
+
+    @staticmethod
+    def cookie_header(signed, secure):
+        return (f'{COOKIE_NAME}={signed}; Path=/; Max-Age=31536000; '
+                f'HttpOnly; SameSite=Lax' + ('; Secure' if secure else ''))
+
+
+class AccessStore(SignedVisitors):
+    def __init__(self, path: Path, secret: str, visitor_limit=2, daily_limit=20):
+        super().__init__(secret)
+        if visitor_limit < 1 or daily_limit < 1:
+            raise ValueError('Positive daily limits are required.')
+        self.path = Path(path)
         self.visitor_limit = visitor_limit
         self.daily_limit = daily_limit
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,29 +87,6 @@ class AccessStore:
                 yield db
         finally:
             db.close()
-
-    def digest(self, value):
-        return hmac.new(self.secret, value.encode('utf-8'), hashlib.sha256).hexdigest()
-
-    def visitor(self, cookie_header):
-        jar = SimpleCookie()
-        try:
-            jar.load(cookie_header or '')
-            signed = jar[COOKIE_NAME].value if COOKIE_NAME in jar else ''
-            value, signature = signed.split('.', 1)
-            if (len(value) == 32 and len(signature) == 64
-                    and all(c in '0123456789abcdef' for c in value)
-                    and hmac.compare_digest(signature, self.digest('cookie:' + value))):
-                return value, None
-        except (ValueError, IndexError, CookieError):
-            pass
-        value = secrets.token_hex(16)
-        return value, f'{value}.{self.digest("cookie:" + value)}'
-
-    @staticmethod
-    def cookie_header(signed, secure):
-        return (f'{COOKIE_NAME}={signed}; Path=/; Max-Age=31536000; '
-                f'HttpOnly; SameSite=Lax' + ('; Secure' if secure else ''))
 
     def remaining(self, visitor, now=None):
         day = utc_day(now)

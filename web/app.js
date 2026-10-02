@@ -17,6 +17,7 @@ const translations = {
     startKicker:'START HERE', yourPhoto:'你的照片', previewAlt:'待上传照片预览', upload:'点击或拖放自拍照', uploadLimit:'JPG / PNG · 最大 12 MB', changePhoto:'更换照片',
     photoHint:'建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先在本机裁剪；点击生成后将工作图发送给 OpenAI API。',
     publicPhotoHint:'建议上传正面、光线均匀、眉眼和嘴唇清楚可见的照片。点击生成后，服务器会将工作图发送给 OpenAI API；照片和结果只作临时处理，约两小时后清除。',
+    statelessPhotoHint:'照片仅在本次生成请求中临时处理，结果直接返回此页面；服务器不长期保存照片。免费服务有上传大小限制，过大的照片会在浏览器中先压缩。',
     optional:'OPTIONAL', styleTitle:'想要的风格', styleIntro:'没有想法？保持「Auto」，让 AI 根据照片选择。', styleAria:'妆容风格', generate:'生成我的妆容',
     submitNote:'生成通常需要几分钟。上传质量不合格会在调用图片 API 前提示重拍。', resultKicker:'YOUR RESULT', resultTitle:'焕新的你',
     emptyTitle:'效果会在这里出现', emptyBody:'选择照片，开启一次为你设计的妆容体验。', preparing:'正在准备照片', progressInitial:'我们会先分析当前妆容，再生成效果图。',
@@ -42,6 +43,7 @@ const translations = {
     startKicker:'START HERE', yourPhoto:'Your photo', previewAlt:'Selected selfie preview', upload:'Click or drop a selfie', uploadLimit:'JPG / PNG · Up to 12 MB', changePhoto:'Change photo',
     photoHint:'Use a front-facing photo with even light and visible brows, eyes and lips. Small faces or clear black borders may be cropped locally. The working image is sent to the OpenAI API after you click Generate.',
     publicPhotoHint:'Use a front-facing photo with even light and visible brows, eyes and lips. After you click Generate, the server sends a working image to the OpenAI API. Photos and results are temporary and removed after about two hours.',
+    statelessPhotoHint:'Photos are processed only during this request and the result returns to this page; the server does not retain them. Oversized photos are compressed in your browser for the free service.',
     optional:'OPTIONAL', styleTitle:'Choose a style', styleIntro:'Not sure? Leave it on Auto and let AI choose from the photo.', styleAria:'Makeup style', generate:'Generate my look',
     submitNote:'Generation can take a few minutes. Low-quality uploads are rejected before the image API call.', resultKicker:'YOUR RESULT', resultTitle:'Your refined look',
     emptyTitle:'Your result will appear here', emptyBody:'Choose a photo to start your personalized makeup look.', preparing:'Preparing your photo', progressInitial:'We will review your makeup, then generate your new look.',
@@ -76,13 +78,14 @@ const terminal = new Set([
   'completed', 'completed_no_changes', 'completed_no_visible_changes',
   'instructions_unavailable', 'planning_rejected', 'failed', 'rejected', 'candidate_rejected',
 ]);
-const state = {file: null, previewUrl: null, style: 'Auto', jobId: null, timer: null, dragging: false, lastJob: null, progressStarted: false, error: null, errorKey: null, quota: null};
+const state = {file: null, previewUrl: null, sentImageDataUrl: null, style: 'Auto', jobId: null, timer: null, dragging: false, lastJob: null, progressStarted: false, error: null, errorKey: null, quota: null};
 
 function renderQuota() {
   show('quota-status', Boolean(state.quota?.limited));
   if (state.quota?.limited) $('quota-status').textContent = t('quota', state.quota.visitorRemaining, state.quota.dailyRemaining);
   document.querySelector('[data-i18n="local"]').textContent = t(state.quota?.limited ? 'publicLabel' : 'local');
-  document.querySelector('[data-i18n="photoHint"]').textContent = t(state.quota?.limited ? 'publicPhotoHint' : 'photoHint');
+  document.querySelector('[data-i18n="photoHint"]').textContent = t(
+    state.quota?.mode === 'serverless' ? 'statelessPhotoHint' : state.quota?.limited ? 'publicPhotoHint' : 'photoHint');
 }
 
 async function refreshQuota() {
@@ -198,6 +201,44 @@ function readBase64(file) {
   });
 }
 
+async function prepareServerlessPhoto(file) {
+  const originalDataUrl = `data:${file.type};base64,${await readBase64(file)}`;
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (file.size <= 2_500_000 && bitmap.width * bitmap.height <= 20_000_000) {
+      return {image: originalDataUrl.split(',', 2)[1], preview: originalDataUrl};
+    }
+    const canvas = document.createElement('canvas');
+    for (const maxEdge of [4000, 3200, 2600, 2100, 1700, 1300]) {
+      const factor = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height),
+        Math.sqrt(20_000_000 / (bitmap.width * bitmap.height)));
+      canvas.width = Math.max(1, Math.round(bitmap.width * factor));
+      canvas.height = Math.max(1, Math.round(bitmap.height * factor));
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.88, 0.8, 0.72]) {
+        const preview = canvas.toDataURL('image/jpeg', quality);
+        const image = preview.split(',', 2)[1];
+        if (image.length < 3_300_000) return {image, preview};
+      }
+    }
+    throw new Error(t('invalidFile'));
+  } finally { bitmap.close(); }
+}
+
+async function clientBeforeUrl(job) {
+  if (!state.sentImageDataUrl || !job.inputCrop?.cropBox) return state.sentImageDataUrl;
+  const photo = new Image();
+  photo.src = state.sentImageDataUrl;
+  await photo.decode();
+  const [x0, y0, x1, y1] = job.inputCrop.cropBox;
+  const canvas = document.createElement('canvas');
+  canvas.width = x1 - x0;
+  canvas.height = y1 - y0;
+  canvas.getContext('2d').drawImage(photo, x0, y0, canvas.width, canvas.height,
+    0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
 async function jsonResponse(response) {
   let body;
   try { body = await response.json(); } catch { throw new Error(t('badResponse')); }
@@ -231,6 +272,23 @@ async function generate() {
   clearTimeout(state.timer);
   beginProgress();
   try {
+    if (!state.quota) await refreshQuota();
+    if (!state.quota) throw new Error(t('unavailable'));
+    if (state.quota.mode === 'serverless') {
+      const prepared = await prepareServerlessPhoto(state.file);
+      state.sentImageDataUrl = prepared.preview;
+      $('progress-title').textContent = t('progressAnalyzing');
+      $('progress-detail').textContent = t('progressAnalyzeDetail');
+      $('progress-fill').style.width = '24%';
+      const response = await fetch('/api/generate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({style: state.style, image: prepared.image}),
+      });
+      const job = await jsonResponse(response);
+      if (job.originalUrl === 'client:original') job.originalUrl = await clientBeforeUrl(job);
+      renderJob(job);
+      return;
+    }
     const image = await readBase64(state.file);
     const response = await fetch('/api/jobs', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -514,7 +572,10 @@ setupUpload();
 setupSlider();
 const savedJob = new URLSearchParams(location.search).get('job') || sessionStorage.getItem('mirror-job');
 if (savedJob && /^[0-9a-f]{32}$/.test(savedJob)) {
-  state.jobId = savedJob;
-  beginProgress();
-  pollJob();
+  refreshQuota().then(() => {
+    if (state.quota?.mode === 'serverless') return;
+    state.jobId = savedJob;
+    beginProgress();
+    pollJob();
+  });
 }

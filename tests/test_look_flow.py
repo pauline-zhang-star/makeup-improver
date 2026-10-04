@@ -869,6 +869,24 @@ def test_edge_safe_composite_does_not_fade_a_full_makeup_core():
     assert result_delta < old_delta * .55
 
 
+def test_soft_cheek_composite_fades_inside_oval_without_fading_other_makeup():
+    original = Image.new('RGB', (120, 100), (100, 100, 100))
+    edited = Image.new('RGB', original.size, (180, 80, 80))
+    from PIL import ImageDraw
+    cheek = Image.new('L', original.size, 0)
+    ImageDraw.Draw(cheek).ellipse((12, 25, 62, 75), fill=255)
+    brow = Image.new('L', original.size, 0)
+    ImageDraw.Draw(brow).rectangle((80, 25, 108, 45), fill=255)
+    combined = Image.fromarray(np.maximum(np.asarray(cheek), np.asarray(brow)))
+    result, report = edge_safe_composite(original, edited, combined,
+        correction_strength=0, soft_mask=cheek, hard_mask=brow, soft_feather_pixels=7)
+    assert result.getpixel((37, 50))[0] >= 175  # cheek center keeps its pigment
+    assert result.getpixel((12, 50))[0] <= 108  # no stamped oval boundary
+    assert result.getpixel((95, 35))[0] >= 175  # unrelated makeup keeps its strength
+    assert result.getpixel((11, 50)) == original.getpixel((11, 50))
+    assert report['softRegionCoverageFraction'] > 0
+
+
 def test_complexion_texture_restoration_keeps_fine_detail_inside_foundation_mask():
     pixels = np.full((80, 80, 3), 120, dtype=np.uint8)
     pixels[20:60, 20:60] += (np.indices((40, 40))[0] % 3)[..., None].astype(np.uint8) * 12

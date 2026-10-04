@@ -194,7 +194,20 @@ class LookPipeline:
                     alignment['registrationFallback'] = 'expanded_border_recovery'
                 passed('registration', alignment.copy())
                 active_check = 'compositing'
-                enhanced, composite_report = edge_safe_composite(original, aligned, mask)
+                blush_items = [item for item in plan.selected if item.get('region') == 'blush']
+                if blush_items:
+                    other_items = [item for item in plan.selected if item.get('region') != 'blush']
+                    blush_mask = direct_edit_mask(original.size, points, style, blush_items)
+                    other_mask = (direct_edit_mask(original.size, points, style, other_items)
+                                  if other_items else None)
+                    image_scale = np.asarray(original.size)
+                    eye_span = float(np.linalg.norm(
+                        (np.asarray(points[263]) - np.asarray(points[33])) * image_scale))
+                    enhanced, composite_report = edge_safe_composite(
+                        original, aligned, mask, soft_mask=blush_mask, hard_mask=other_mask,
+                        soft_feather_pixels=max(4, eye_span * .045))
+                else:
+                    enhanced, composite_report = edge_safe_composite(original, aligned, mask)
                 complexion_texture_report = {'textureRestorationApplied': False}
                 foundation_items = [item for item in plan.selected
                                     if item.get('region') == 'foundation']

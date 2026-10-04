@@ -167,7 +167,8 @@ def composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
 
 
 def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
-                        correction_strength: float = .65):
+                        correction_strength: float = .65, soft_mask=None,
+                        hard_mask=None, soft_feather_pixels: float = 12):
     """Keep protected pixels while matching low-frequency color at the seam.
 
     The generated makeup remains inside the supplied mask. A blurred local
@@ -177,21 +178,43 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
     """
     if edited.size != original.size or mask.size != original.size or mask.mode != 'L':
         raise SpikeError('QUALITY_CHECK_FAILED', 'The edge-safe composite dimensions or mask are invalid.')
+    for region_mask in (soft_mask, hard_mask):
+        if region_mask is not None and (region_mask.size != mask.size or region_mask.mode != 'L'):
+            raise SpikeError('QUALITY_CHECK_FAILED', 'A regional composite mask is invalid.')
     if not 0 <= correction_strength <= 1:
         raise ValueError('correction_strength must be between zero and one')
+    if not np.isfinite(soft_feather_pixels) or soft_feather_pixels <= 0:
+        raise ValueError('soft_feather_pixels must be positive and finite')
     before = np.asarray(to_srgb(original), dtype=np.float32)
     after = np.asarray(to_srgb(edited), dtype=np.float32)
     alpha = np.asarray(mask, dtype=np.float32) / 255.
     support = alpha > 0
     if not np.any(support):
         raise SpikeError('QUALITY_CHECK_FAILED', 'The edit mask has no compositing support.')
-    # Technique intensity controls selection and the provider request. It must
-    # not accidentally fade the finished API makeup. Rebuild a full-strength
-    # interior with a short inward edge transition, while never expanding
-    # outside the permitted support.
-    support_image = Image.fromarray(np.uint8(support) * 255)
-    smoothed = np.asarray(support_image.filter(ImageFilter.GaussianBlur(2)), dtype=np.float32) / 255.
-    alpha = np.where(support, smoothed, 0.)
+    # Technique intensity controls the provider request; keep full pigment in
+    # the interior. A binary support with a two-pixel seam, however, turns a
+    # soft cheek edit into a visibly stamped oval. Give only explicitly named
+    # diffuse regions a wider inward fade, never opening protected pixels.
+    if soft_mask is None:
+        support_image = Image.fromarray(np.uint8(support) * 255)
+        smoothed = np.asarray(support_image.filter(ImageFilter.GaussianBlur(2)), dtype=np.float32) / 255.
+        alpha = np.where(support, smoothed, 0.)
+        soft_support = np.zeros_like(support)
+    else:
+        soft_support = (np.asarray(soft_mask) > 0) & support
+        hard_support = support & ~soft_support
+        if hard_mask is not None:
+            hard_support |= (np.asarray(hard_mask) > 0) & support
+        hard_image = Image.fromarray(np.uint8(hard_support) * 255)
+        hard_blur = np.asarray(hard_image.filter(ImageFilter.GaussianBlur(2)), dtype=np.float32) / 255.
+        hard_alpha = np.where(hard_support, hard_blur, 0.)
+        soft_image = Image.fromarray(np.uint8(soft_support) * 255)
+        soft_blur = np.asarray(soft_image.filter(
+            ImageFilter.GaussianBlur(soft_feather_pixels)), dtype=np.float32) / 255.
+        # A blurred binary mask is ~0.5 at its boundary. Remap that value to
+        # zero so the last editable pixel does not create another hard seam.
+        soft_alpha = np.where(soft_support, np.clip(2 * soft_blur - 1, 0., 1.), 0.)
+        alpha = np.maximum(hard_alpha, soft_alpha)
     radius = max(2, min(12, round(min(original.size) * .012)))
     base_low = np.asarray(Image.fromarray(np.uint8(before)).filter(
         ImageFilter.GaussianBlur(radius)), dtype=np.float32)
@@ -207,5 +230,7 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
         'correctionStrength': correction_strength,
         'blurRadiusPixels': radius,
         'editableCoverageFraction': float(np.mean(support)),
+        'softRegionCoverageFraction': float(np.mean(soft_support)),
+        'softFeatherPixels': soft_feather_pixels if soft_mask is not None else 0,
         'protectedPixelsRestoredExactly': True,
     }

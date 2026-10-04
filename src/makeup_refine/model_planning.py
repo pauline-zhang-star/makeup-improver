@@ -130,7 +130,7 @@ class LookDesign(StrictModel):
     brow_makeup_evidence: Optional[BrowMakeupEvidence] = None
     # Ordered decisions share one wire field. Several compatible proposals may
     # target a region, but a preserve decision excludes every proposal there.
-    region_decisions: list[Union[PreserveDecision, PlacementTechnique, ColorTechnique]] = Field(
+    region_decisions: list[Union[PlacementTechnique, ColorTechnique, PreserveDecision]] = Field(
         max_length=MAX_SELECTED_TECHNIQUES + len(REGIONS))
 
     @model_validator(mode='after')
@@ -141,11 +141,8 @@ class LookDesign(StrictModel):
             raise ValueError('A cohesive look direction is required.')
         if not set(self.color_references).issubset({'hair', 'iris', 'undertone'}):
             raise ValueError('Unknown color reference.')
-        if len(self.proposals) > MAX_SELECTED_TECHNIQUES:
-            raise ValueError('Too many proposed techniques.')
-        preserved = [decision.region for decision in self.preserved_areas]
-        if len(set(preserved)) != len(preserved):
-            raise ValueError('Duplicate preserve decision for the same region.')
+        # Decision conflicts are audited entry by entry below. Rejecting the
+        # whole response here would discard otherwise usable proposals.
         return self
 
     @property
@@ -253,6 +250,8 @@ def validate_design(design, catalog=None):
                         reason = 'unreliable_' + reference + '_color_reference'
         if reason is None:
             reason = technique_evidence_rejection(proposal.structured_evidence, region, tid, proposal.color_delta)
+        if reason is None and len(selected) >= MAX_SELECTED_TECHNIQUES:
+            reason = 'technique_limit_reached'
         if reason is None:
             claimed.setdefault(region, []).append(tid)
         validation_results.append({
@@ -357,6 +356,8 @@ def planning_prompt(style, catalog=None):
         'Every proposal must include non-null structured_evidence matching its anatomical region. '
         'Separate anatomical visibility, current makeup state, and why a change serves the requested style. '
         'Bare visible eyelids/cheeks/nose are visible=true even without liner, shadow, blush or contour. '
+        'If the eye and surrounding lid skin are clearly visible, both eyeliner and eyeshadow '
+        'visibility MUST be true even when the selfie has no eyeliner or eyeshadow. '
         'Never mark an anatomical area unavailable merely because no cosmetic product is visible. '
         'Report current_state, pigment_source, operation, purpose, concrete visual_cues, confidence, '
         'observation, target_effect and style_reason honestly. Balanced or well-defined makeup may be '
@@ -395,9 +396,15 @@ def planning_prompt(style, catalog=None):
         'Provide an overall look_direction identifying the intended visual emphasis, the supporting '
         'areas, and their coordinated color balance and finish; '
         'it cannot authorize a technique absent from its own entry in region_decisions. '
-        'Use ONE ordered region_decisions list for every area considered. Each entry has '
-        'kind="preserve" with a reason, or kind="propose" with one catalog technique and its '
-        'evidence. Never both preserve and propose the same region. Multiple propose entries '
+        'Use ONE ordered region_decisions list. First decide the actual makeup changes needed '
+        'for the requested style and write a kind="propose" entry for each selected catalog '
+        'technique, with its rendering parameters and evidence. Only then add kind="preserve" '
+        'entries for areas where you recommend NO cosmetic change. Preserve means no new pigment, '
+        'placement, shape, or finish change in that area; preserving natural hair, anatomy or '
+        'texture while adding makeup is a propose decision, not a preserve decision. Never mark '
+        'an area preserve if its reason says to enhance, define, fill, build, deepen, extend, '
+        'shift color, or otherwise apply makeup there. Never both preserve and propose the same '
+        'region. Multiple propose entries '
         'for one region are allowed only when their techniques are compatible, each has distinct '
         'observed support, and together they serve the coordinated look. Never duplicate a '
         'technique or write two preserve entries for one region. At most seven propose entries total. '

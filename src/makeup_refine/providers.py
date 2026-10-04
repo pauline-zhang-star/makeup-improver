@@ -66,6 +66,9 @@ class OpenAIProvider:
         self.last_technique_analysis = None
         style = MakeupStyle(style or MakeupStyle.AUTO)
         prompt = planning_prompt(style)
+        phase = 'request'
+        response = None
+        choice = {}
         try:
             response = self._post('planning', 'chat/completions', json={
                 'model': self.vision_model, 'response_format': planning_response_format(),
@@ -75,12 +78,40 @@ class OpenAIProvider:
                                                           'url': 'data:image/png;base64,' + base64.b64encode(png(original)).decode(),
                                                           'detail': 'high'}}]}]})
             response.raise_for_status()
-            design = LookDesign.model_validate_json(response.json()['choices'][0]['message']['content'])
+            phase = 'response_shape'
+            choice = response.json()['choices'][0]
+            content = choice['message']['content']
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError('Planning response has no JSON content.')
+            phase = 'model_schema'
+            design = LookDesign.model_validate_json(content)
             self.last_technique_analysis = {'analysis_schema': 'model_visual_reasoning_v1',
                                             **design.model_dump()}
+            phase = 'local_validation'
             return validate_design(design)
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
-            raise SpikeError('ANALYSIS_FAILED', 'Could not verify a technique plan from the photo.') from exc
+        except httpx.HTTPStatusError as exc:
+            raise SpikeError('ANALYSIS_FAILED', 'Could not verify a technique plan from the photo.',
+                             {'planningFailure': {'phase': 'http_status',
+                                                  'httpStatus': exc.response.status_code,
+                                                  'requestId': exc.response.headers.get('x-request-id')}}) from exc
+        except ValidationError as exc:
+            # Report locations/types only; never echo the model's text or the photo.
+            issues = [{'field': '.'.join(map(str, item['loc'])), 'type': item['type']}
+                      for item in exc.errors(include_input=False, include_context=False,
+                                             include_url=False)[:8]]
+            raise SpikeError('ANALYSIS_FAILED', 'Could not verify a technique plan from the photo.',
+                             {'planningFailure': {'phase': phase, 'issues': issues,
+                                                  'finishReason': choice.get('finish_reason')}}) from exc
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+            finish_reason = None
+            if response is not None and response.is_success:
+                try:
+                    finish_reason = response.json()['choices'][0].get('finish_reason')
+                except (ValueError, KeyError, IndexError, TypeError):
+                    pass
+            raise SpikeError('ANALYSIS_FAILED', 'Could not verify a technique plan from the photo.',
+                             {'planningFailure': {'phase': phase, 'errorType': type(exc).__name__,
+                                                  'finishReason': finish_reason}}) from exc
 
     def enhance(self, original, style=MakeupStyle.AUTO, mask=None, plan=None, correction=None):
         """One direct edit, locally limited to face-anchored cosmetic regions."""

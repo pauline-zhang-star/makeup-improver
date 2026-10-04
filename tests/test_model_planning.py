@@ -121,14 +121,23 @@ def test_rejected_technique_does_not_claim_region_and_preserve_blocks_later_prop
     assert plan.preserved_areas == [{'region': 'lips', 'reason': 'Lip color already fits.'}]
 
 
-def test_only_one_preserve_decision_per_region_and_proposal_cap():
-    with pytest.raises(ValidationError):
-        LookDesign.model_validate(design([
-            dict(kind='preserve', region='brows', reason='Already defined.'),
-            dict(kind='preserve', region='brows', reason='Still defined.')]))
-    with pytest.raises(ValidationError):
-        LookDesign.model_validate(design([proposal()] * 8 + [
-            dict(kind='preserve', region='lips', reason='Keep unchanged.')]))
+def test_duplicate_preserve_is_audited_without_losing_valid_proposals():
+    plan = validate_design(design([
+        dict(kind='preserve', region='brows', reason='Already defined.'),
+        dict(kind='preserve', region='brows', reason='Still defined.'), color()]))
+    assert [item['technique_id'] for item in plan.selected] == ['lips_01']
+    assert plan.preserved_areas == [{'region': 'brows', 'reason': 'Already defined.'}]
+    assert plan.validation_results[1]['firstFailure'] == 'region_already_decided:preserve'
+
+
+def test_more_than_seven_proposals_keeps_valid_priority_and_audits_the_rest():
+    candidates = [proposal(tid) for tid in ('brow_04', 'brow_05', 'eyeliner_01',
+        'eyeshadow_01', 'lips_02', 'blush_01', 'foundation_01')]
+    candidates.append(proposal('nose_01', intensity=.3))
+    plan = validate_design(design(candidates))
+    assert len(plan.selected) == 7
+    assert plan.rejected_proposals == [{'technique_id': 'nose_01',
+                                        'reason': 'technique_limit_reached'}]
 
 
 def test_hue_requires_lighting_and_reference_even_outside_hue_named_entries():
@@ -146,7 +155,7 @@ def test_required_reasoning_and_cap_are_enforced():
     for key in ('observation','style_reason','application'):
         p=proposal();p[key]='  '
         with pytest.raises(ValidationError): LookDesign.model_validate(design([p]))
-    with pytest.raises(ValidationError): LookDesign.model_validate(design([proposal()]*8))
+    assert len(LookDesign.model_validate(design([proposal()]*8)).proposals) == 8
     d=design();d['visibility'].pop('lips')
     with pytest.raises(ValidationError): LookDesign.model_validate(d)
 
@@ -330,5 +339,8 @@ def test_wire_requires_nonnull_evidence_and_visibility_prompt_disambiguates_make
     assert 'visible=true even without' in prompt
     assert 'no defect is required' in prompt
     assert 'Use ONE ordered region_decisions list' in prompt
+    assert 'First decide the actual makeup changes needed' in prompt
+    assert 'Never mark an area preserve if its reason says to enhance' in prompt
+    assert 'visibility MUST be true even when the selfie has no eyeliner or eyeshadow' in prompt
     assert 'Multiple propose entries' in prompt
     assert 'preserved_areas' not in prompt

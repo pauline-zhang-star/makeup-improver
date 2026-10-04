@@ -166,6 +166,7 @@ def public_job(job_id, directory):
     return {
         'id': job_id, 'status': status, 'style': report.get('requestedStyle', 'Auto'),
         'message': report.get('message'), 'errorCode': report.get('errorCode'),
+        'planningFailure': report.get('planningFailure'),
         'inputQuality': report.get('inputQuality'), 'inputRejected': report.get('inputRejected', False),
         'inputCrop': report.get('inputCrop'),
         'providerReframing': ({'faceScaleChangePercent': round((face_scale - 1) * 100, 1)}

@@ -61,13 +61,16 @@ def test_public_job_keeps_failed_candidate_diagnostic_and_planned_guidance(tmp_p
 def test_public_job_identifies_reframe_in_saved_trial(tmp_path):
     directory = tmp_path / ('b' * 32)
     directory.mkdir()
-    report = {'status': 'failed', 'generationAttempts': [{
+    report = {'status': 'failed', 'planningFailure': {'phase': 'model_schema',
+              'issues': [{'field': 'region_decisions', 'type': 'missing'}]},
+              'generationAttempts': [{
         'status': 'rejected', 'scale': 1.18756, 'landmarkResidualAfterFit': .00486,
         'checks': {'registration': {'status': 'failed'}}}]}
     (directory / 'result.json').write_text(json.dumps(report))
     job = web_app.public_job('b' * 32, directory)
     assert job['providerReframing'] == {'faceScaleChangePercent': 18.8}
     assert job['planAvailable'] is False
+    assert job['planningFailure']['issues'][0]['field'] == 'region_decisions'
 
 
 def test_web_handlers_upload_and_static_routes_without_api_call(tmp_path, monkeypatch):

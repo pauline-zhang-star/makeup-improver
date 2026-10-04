@@ -76,8 +76,16 @@ const styleKeys = {Auto:'styleAuto', Natural:'styleNatural', 'Work / Polished':'
 function savedLanguage() {
   const fromUrl = new URLSearchParams(location.search).get('lang');
   if (fromUrl === 'en' || fromUrl === 'zh') return fromUrl;
-  try { return localStorage.getItem('mirror-language') === 'en' ? 'en' : 'zh'; }
-  catch { return 'zh'; }
+  try {
+    const saved = localStorage.getItem('mirror-language');
+    if (saved === 'en' || saved === 'zh') return saved;
+  } catch { /* Private browsing may block storage; use browser language below. */ }
+  const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const locale of preferred) {
+    const primary = String(locale).toLowerCase().split('-')[0];
+    if (primary === 'zh' || primary === 'en') return primary;
+  }
+  return 'en';
 }
 let language = savedLanguage();
 function t(key, ...args) {

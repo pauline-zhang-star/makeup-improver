@@ -62,6 +62,9 @@ def test_rejected_api_image_still_has_cost_and_no_secrets(tmp_path):
     assert saved['totalEstimatedUSD'] == pytest.approx(.069)
     assert saved['byStage']['generation']['calls'] == 2
     assert saved['calls'][0]['requestId'] == 'req-test'
+    assert saved['calls'][0]['durationMs'] >= 0
+    assert saved['byStage']['generation']['recordedDurationMs'] == sum(
+        call['durationMs'] for call in saved['calls'])
     serialized = json.dumps(saved)
     assert 'test-secret' not in serialized and 'b64_json' not in serialized
 

@@ -37,7 +37,8 @@ def test_public_job_keeps_failed_candidate_diagnostic_and_planned_guidance(tmp_p
                                        'evidence': [{'feature': 'lip_edge_visible', 'measured_value': True}]}]},
         'annotationAnchors': {'lips': {'label': [.9, .7], 'target': [.6, .7], 'protected': []}},
         'generationAttempts': [{'status': 'rejected', 'checks': {'geometry': {'status': 'failed'}}}],
-        'apiUsage': {'totalEstimatedUSD': .0123, 'complete': True},
+        'apiUsage': {'totalEstimatedUSD': .0123, 'complete': True,
+                     'byStage': {'planning': {'recordedDurationMs': 12340}}},
     }
     (directory / 'result.json').write_text(json.dumps(report))
     job = web_app.public_job(job_id, directory)
@@ -54,6 +55,7 @@ def test_public_job_keeps_failed_candidate_diagnostic_and_planned_guidance(tmp_p
     assert job['preserved'] == [{'region': 'brows', 'reason': 'Already defined.'}]
     assert job['attempts'][0]['checks']['geometry'] == 'failed'
     assert job['cost'] == .0123
+    assert job['apiTiming'] == {'planning': 12340}
     assert job['inputCrop']['workingSize'] == [48, 48]
     assert job['uploadedUrl'] == f'/api/jobs/{job_id}/uploaded'
 

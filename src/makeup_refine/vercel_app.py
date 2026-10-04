@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from http.server import ThreadingHTTPServer
 from io import BytesIO
@@ -127,7 +128,7 @@ def timeout_metadata(directory):
 class VercelHandler(WebHandler):
     server_version = 'MakeupRefineVercel/1.0'
 
-    def serve_job(self, job_id, output, cookie, status_override=None):
+    def serve_job(self, job_id, output, cookie, status_override=None, started_at=None):
         job = public_job(job_id, output)
         if job['afterUrl']:
             image_file = display_image_file(output)
@@ -147,6 +148,8 @@ class VercelHandler(WebHandler):
         job['reviewUrl'] = None
         if status_override:
             job.update(status_override)
+        if started_at is not None:
+            job['serverDurationSeconds'] = round(time.perf_counter() - started_at, 1)
         self.respond(200, job, cookie=cookie)
 
     def visitor(self):
@@ -199,6 +202,7 @@ class VercelHandler(WebHandler):
             self.respond(404, {'error': 'Not found.'})
 
     def do_POST(self):
+        started_at = time.perf_counter()
         if self.path != '/api/generate':
             self.respond(404, {'error': 'Not found.'})
             return
@@ -254,6 +258,7 @@ class VercelHandler(WebHandler):
             env = os.environ.copy()
             env['MPLCONFIGDIR'] = '/tmp/mpl'
             env['MAKEUP_DIAGNOSTICS'] = '1'
+            env['MAKEUP_SKIP_REVIEW_HTML'] = '1'
             command = [sys.executable, '-m', 'makeup_refine.cli', str(upload),
                        '--output', str(output), '--style', style.value,
                        '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
@@ -286,7 +291,7 @@ class VercelHandler(WebHandler):
                             'timeoutStage': diagnostics['stage'],
                             'providerCallsStarted': diagnostics['providerCallsStarted'],
                             'plannedGuides': [], 'callouts': [],
-                        })
+                        }, started_at=started_at)
                         return
                     except (OSError, ValueError, json.JSONDecodeError):
                         pass
@@ -314,7 +319,7 @@ class VercelHandler(WebHandler):
             try:
                 job = public_job(job_id, output)
                 guard().event('generation_finished', visitor, job_id=job_id, detail=job['status'])
-                self.serve_job(job_id, output, cookie)
+                self.serve_job(job_id, output, cookie, started_at=started_at)
             except (OSError, ValueError, json.JSONDecodeError):
                 guard().event('result_unavailable', visitor, job_id=job_id)
                 self.respond(502, {'error': 'The generated result could not be displayed.'}, cookie=cookie)

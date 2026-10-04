@@ -68,11 +68,15 @@ class UsageLedger:
     def snapshot(self):
         stages = {}
         for call in self.calls:
-            group = stages.setdefault(call['stage'], {'calls': 0, 'knownEstimatedUSD': 0., 'unpricedCalls': 0})
+            group = stages.setdefault(call['stage'], {'calls': 0, 'knownEstimatedUSD': 0.,
+                                                      'unpricedCalls': 0, 'recordedDurationMs': 0})
             group['calls'] += 1
             cost = call['estimatedUSD']
             group['knownEstimatedUSD'] = round(group['knownEstimatedUSD'] + (cost or 0), 8)
             group['unpricedCalls'] += int(cost is None)
+            duration = call.get('durationMs')
+            if isinstance(duration, (int, float)) and duration >= 0:
+                group['recordedDurationMs'] += round(duration)
         subtotal = round(sum(c['estimatedUSD'] or 0 for c in self.calls), 8)
         unpriced = sum(c['estimatedUSD'] is None for c in self.calls)
         complete = not self.historical_usage_missing and unpriced == 0
@@ -96,8 +100,11 @@ class UsageLedger:
         self.notify()
         return record
 
-    def finish(self, record, response=None):
+    def finish(self, record, response=None, duration_ms=None):
         record['status'] = 'transport_error' if response is None else ('response_received' if response.is_success else 'http_error')
+        record['finishedAt'] = datetime.now(timezone.utc).isoformat()
+        if duration_ms is not None:
+            record['durationMs'] = max(0, round(duration_ms))
         if response is not None:
             record['httpStatus'] = response.status_code
             record['requestId'] = response.headers.get('x-request-id')

@@ -61,6 +61,15 @@ def test_visual_rejection_and_all_attempts_keep_independent_sliders(tmp_path):
     assert html.count('id="position"') == 1
 
 
+def test_stateless_run_saves_result_without_unused_review_html(tmp_path, monkeypatch):
+    monkeypatch.setenv('MAKEUP_SKIP_REVIEW_HTML', '1')
+    original = Image.new('RGB', (64, 64), 'gray')
+    enhanced = Image.new('RGB', (64, 64), 'pink')
+    save_review(tmp_path, original, enhanced, {'status': 'enhanced_ready', 'steps': []})
+    assert json.loads((tmp_path / 'result.json').read_text())['enhancedImage'] == 'enhancedImage.png'
+    assert not (tmp_path / 'review.html').exists()
+
+
 def test_trace_preserves_retries_and_transport_failure(tmp_path):
     def fail(request):
         raise httpx.ReadTimeout('do not persist headers', request=request)

@@ -82,6 +82,7 @@ def test_vercel_job_returns_image_only_in_response_and_deletes_working_files(tmp
 
     def fake_run(command, **kwargs):
         assert command[command.index('--max-working-edge') + 1] == '1536'
+        assert kwargs['env']['MAKEUP_SKIP_REVIEW_HTML'] == '1'
         output = Path(command[command.index('--output') + 1])
         working.append(output.parent)
         output.mkdir()
@@ -101,6 +102,7 @@ def test_vercel_job_returns_image_only_in_response_and_deletes_working_files(tmp
     assert job['originalUrl'].startswith('data:image/jpeg;base64,')
     assert job['afterUrl'].startswith('data:image/jpeg;base64,')
     assert job['reviewUrl'] is None and job['uploadedUrl'] is None
+    assert job['serverDurationSeconds'] >= 0
     assert not working[0].exists()
     assert 'Secure' in headers['Set-Cookie']
     assert guard.reservations == 1

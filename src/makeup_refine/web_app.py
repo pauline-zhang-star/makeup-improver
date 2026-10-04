@@ -221,6 +221,9 @@ def public_job(job_id, directory):
                       'checks': {key: value.get('status') for key, value in (x.get('checks') or {}).items()}}
                      for x in report.get('generationAttempts') or []],
         'cost': (report.get('apiUsage') or {}).get('totalEstimatedUSD'),
+        'apiTiming': {stage: details.get('recordedDurationMs')
+                      for stage, details in ((report.get('apiUsage') or {}).get('byStage') or {}).items()
+                      if isinstance(details, dict) and details.get('recordedDurationMs') is not None},
         'knownCost': (report.get('apiUsage') or {}).get('knownEstimatedUSD'),
         'costComplete': (report.get('apiUsage') or {}).get('complete'),
         'reviewUrl': f'/api/jobs/{job_id}/review' if (directory / 'review.html').is_file() else None,

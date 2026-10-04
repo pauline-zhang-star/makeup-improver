@@ -51,6 +51,10 @@ def save_review(directory, original, enhanced, report):
     temporary = directory / 'result.json.tmp'
     temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
     temporary.replace(directory / 'result.json')
+    # The stateless Vercel response uses public_job and inline JPEGs, never the
+    # private offline HTML. Avoid repeatedly encoding full-size PNGs for it.
+    if os.environ.get('MAKEUP_SKIP_REVIEW_HTML') == '1':
+        return
     comparison = enhanced
     if comparison is None:
         # A rejected API candidate is still useful in a test review. Prefer the

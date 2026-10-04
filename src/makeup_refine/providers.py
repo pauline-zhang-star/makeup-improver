@@ -2,6 +2,7 @@
 import base64
 from io import BytesIO
 import json
+import time
 import httpx
 from PIL import Image
 from pydantic import ValidationError
@@ -45,15 +46,17 @@ class OpenAIProvider:
         record = self.usage_ledger.begin(stage, endpoint, model)
         if self.trial_trace:
             self.trial_trace.begin(record, kwargs)
+        started = time.perf_counter()
         try:
             response = self.client.post(endpoint, **kwargs)
         except httpx.HTTPError:
-            self.usage_ledger.finish(record)
+            self.usage_ledger.finish(record, duration_ms=(time.perf_counter() - started) * 1000)
             if self.trial_trace:
                 self.trial_trace.finish(record)
             raise
         # Record before parsing/validation: a rejected result still consumed tokens.
-        self.usage_ledger.finish(record, response)
+        self.usage_ledger.finish(record, response,
+                                 duration_ms=(time.perf_counter() - started) * 1000)
         if self.trial_trace:
             self.trial_trace.finish(record, response)
         return response

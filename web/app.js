@@ -38,6 +38,7 @@ const translations = {
     reframing:(n)=>`模型返回图把人脸缩放了 ${n > 0 ? '+' : ''}${n}%，与原图不对齐。本次结果仅供诊断，不能作为最终妆容；这是生成结果的问题。`,
     diagnostic:'这张生成图未通过检查，仅供对照诊断，不是最终妆容。', visualOnly:'生成图没有可靠的可见妆容变化，因此没有编造操作指导。', noChange:'没有选出合格的改善技法，请试另一张照片或风格。', failed:'本次生成未完成。请查看测试记录。', cropNote:'已在本机裁剪输入构图；下方“原图”是送入模型的裁剪图。裁剪不能保证模型保持对齐。', resizeNote:'线上工作图已等比缩小；下方“原图”是送入模型的工作图。',
     basisStyle:'风格基础', basisPhoto:'照片特征', noSelected:'没有入选技法。', planUnavailable:'规划未完成，不能判断是否有适用技法。', modelNoProposals:'模型没有提出修改技法；请查看下方的保留决定。', allFiltered:'模型提出了技法，但全部未通过本地校验；请查看规则检查。', plannedAudit:'选中的技法与依据', lookDirectionAudit:'整体妆容方向', planningDecisionsAudit:'模型逐部位决定', preservedAudit:'决定保留的部位', proposeDecision:'提议修改', preserveDecision:'保留', planningFailureAudit:'规划失败诊断', rulesAudit:'规则检查', generateAudit:'生成与检查', qualityAudit:'照片质量', cropAudit:'输入构图与尺寸', reframeAudit:'模型构图偏移', costAudit:'API 费用', sourceMessage:'原始错误详情', candidate:'候选项', failedCheck:'未通过校验', unknown:'未知', attempt:(n)=>`第 ${n} 次`, cropBox:'原图坐标中的范围', reason:'原因', faceScale:'返回图人脸缩放', reframeExplanation:'图片编辑遮罩仅提供生成指引；这次返回图没有保持原图构图。', costApprox:(n)=>`约 $${n} USD`, costKnown:(n)=>`已知约 $${n} USD（未包含无法计价的调用）`, costMissing:'费用尚未记录', sourceNote:'技术检查字段及原始错误保留记录时的语言。', inputRejected:'照片质量未通过检查，请更换一张清晰、正面的照片；本次不计入免费次数。具体原因见本次记录。',
+    timingAudit:'耗时', timingTotal:'服务端总计', timingOther:'本地检查与传输', timingStages:{planning:'妆容规划',generation:'图片生成',comparison:'变化对照'},
   },
   en: {
     brandAria:'Mirror home', topNote:'YOUR MAKEUP, REIMAGINED', local:'Runs locally', publicLabel:'Online demo', eyebrow:'PERSONAL MAKEUP STUDIO',
@@ -68,6 +69,7 @@ const translations = {
     reframing:(n)=>`The model resized the face by ${n > 0 ? '+' : ''}${n}%, so it no longer aligns with the original. This is a diagnostic result, not a final look.`,
     diagnostic:'This generated image did not pass review. It is shown only for comparison, not as a final look.', visualOnly:'No reliable visible makeup change was found, so no steps were invented.', noChange:'No suitable improvements were selected. Try another photo or style.', failed:'This generation did not finish. See the test record.', cropNote:'The input was cropped locally. “Before” shows the working image sent to the model. Cropping cannot guarantee alignment.', resizeNote:'The online working image was scaled proportionally. “Before” shows the working image sent to the model.',
     basisStyle:'Style baseline', basisPhoto:'Photo evidence', noSelected:'No techniques selected.', planUnavailable:'Planning did not finish, so suitability is unknown.', modelNoProposals:'The model proposed no changes; see its preserve decisions below.', allFiltered:'The model proposed techniques, but local validation rejected all of them. See rule checks.', plannedAudit:'Selected techniques and basis', lookDirectionAudit:'Overall look direction', planningDecisionsAudit:'Model decisions by area', preservedAudit:'Areas kept unchanged', proposeDecision:'Proposed edit', preserveDecision:'Preserved', planningFailureAudit:'Planning failure details', rulesAudit:'Rule checks', generateAudit:'Generation and review', qualityAudit:'Photo quality', cropAudit:'Input framing and size', reframeAudit:'Model framing shift', costAudit:'API cost', sourceMessage:'Original error details', candidate:'Candidate', failedCheck:'Did not pass validation', unknown:'Unknown', attempt:(n)=>`Attempt ${n}`, cropBox:'Crop box in original coordinates', reason:'Reason', faceScale:'Returned face scale', reframeExplanation:'The edit mask guides the model; this result did not preserve the original framing.', costApprox:(n)=>`About $${n} USD`, costKnown:(n)=>`Known cost about $${n} USD (excludes unpriced calls)`, costMissing:'Cost not recorded', sourceNote:'Technical fields and original errors retain their recorded language.', inputRejected:'The photo did not pass the quality check. Try a clearer front-facing photo. This does not use a free try. See run details for the reason.',
+    timingAudit:'Time spent', timingTotal:'Server total', timingOther:'Local checks and transfer', timingStages:{planning:'Makeup planning',generation:'Image generation',comparison:'Change comparison'},
   },
 };
 const styleKeys = {Auto:'styleAuto', Natural:'styleNatural', 'Work / Polished':'styleWork', 'Korean Soft':'styleKorean', Fresh:'styleFresh', 'Date Night':'styleDate', Sophisticated:'styleSophisticated', 'Soft Glam':'styleGlam'};
@@ -560,6 +562,17 @@ function renderAudit(job) {
   const cost = job.cost != null ? t('costApprox', Number(job.cost).toFixed(4)) :
     job.knownCost != null ? t('costKnown', Number(job.knownCost).toFixed(4)) : t('costMissing');
   auditBlock(t('costAudit'), [cost]);
+  const timingEntries = Object.entries(job.apiTiming || {});
+  const timingLines = timingEntries.map(([stage, ms]) =>
+    `${t('timingStages')[stage] || stage}：${(Number(ms) / 1000).toFixed(1)} s`);
+  if (Number.isFinite(job.serverDurationSeconds)) {
+    timingLines.unshift(`${t('timingTotal')}：${job.serverDurationSeconds.toFixed(1)} s`);
+    if (timingEntries.length) {
+      const apiSeconds = timingEntries.reduce((sum, [, ms]) => sum + Number(ms) / 1000, 0);
+      timingLines.push(`${t('timingOther')}：${Math.max(0, job.serverDurationSeconds - apiSeconds).toFixed(1)} s`);
+    }
+  }
+  auditBlock(t('timingAudit'), timingLines);
   if (job.message) auditBlock(t('sourceMessage'), [job.message]);
   if (language === 'zh') $('audit-body').append(make('p', t('sourceNote'), 'audit-source-note'));
   show('audit', true);

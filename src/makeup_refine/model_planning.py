@@ -62,6 +62,7 @@ def technique_evidence_rejection(evidence, region, tid, delta):
 
 
 class ObservedTechnique(TechniqueProposal):
+    kind: Literal['propose'] = 'propose'
     structured_evidence: Optional[TechniqueEvidence] = None
     observation: str = Field(min_length=1, max_length=600)
     style_reason: str = Field(min_length=1, max_length=600)
@@ -88,7 +89,8 @@ class ColorTechnique(ObservedTechnique):
     color_delta: ColorDelta
 
 
-class PreservedArea(StrictModel):
+class PreserveDecision(StrictModel):
+    kind: Literal['preserve'] = 'preserve'
     region: Region
     reason: str = Field(min_length=1, max_length=600)
 
@@ -126,8 +128,10 @@ class LookDesign(StrictModel):
     color_references: dict[str, Measurement] = Field(default_factory=dict)
     # Retained only to read/audit historical plans; never substitutes for per-proposal evidence.
     brow_makeup_evidence: Optional[BrowMakeupEvidence] = None
-    proposals: list[Union[PlacementTechnique, ColorTechnique]] = Field(max_length=MAX_SELECTED_TECHNIQUES)
-    preserved_areas: list[PreservedArea] = Field(default_factory=list, max_length=7)
+    # Ordered decisions share one wire field. Several compatible proposals may
+    # target a region, but a preserve decision excludes every proposal there.
+    region_decisions: list[Union[PreserveDecision, PlacementTechnique, ColorTechnique]] = Field(
+        max_length=MAX_SELECTED_TECHNIQUES + len(REGIONS))
 
     @model_validator(mode='after')
     def validate_design(self):
@@ -137,9 +141,22 @@ class LookDesign(StrictModel):
             raise ValueError('A cohesive look direction is required.')
         if not set(self.color_references).issubset({'hair', 'iris', 'undertone'}):
             raise ValueError('Unknown color reference.')
-        if len({a.region for a in self.preserved_areas}) != len(self.preserved_areas):
-            raise ValueError('Duplicate preserved area.')
+        if len(self.proposals) > MAX_SELECTED_TECHNIQUES:
+            raise ValueError('Too many proposed techniques.')
+        preserved = [decision.region for decision in self.preserved_areas]
+        if len(set(preserved)) != len(preserved):
+            raise ValueError('Duplicate preserve decision for the same region.')
         return self
+
+    @property
+    def proposals(self):
+        """Technique-only view for existing validation and reporting code."""
+        return [decision for decision in self.region_decisions if decision.kind == 'propose']
+
+    @property
+    def preserved_areas(self):
+        """Preservation-only view; the wire format uses region_decisions."""
+        return [decision for decision in self.region_decisions if decision.kind == 'preserve']
 
 
 def reliable(measurement):
@@ -152,8 +169,24 @@ def validate_design(design, catalog=None):
     design = LookDesign.model_validate(design)
     catalog = catalog or TechniqueCatalog()
     selected, rejected, validation_results = [], [], []
-    preserved = {area.region for area in design.preserved_areas}
-    for proposal in design.proposals:
+    preserved, claimed = [], {}
+    for decision in design.region_decisions:
+        if decision.kind == 'preserve':
+            previous = claimed.get(decision.region)
+            if previous:
+                # A proposal before a preserve decision must be audited too; a
+                # one-way check would quietly report the area as both changed
+                # and preserved when the model reverses their order.
+                reason = 'region_already_decided:' + previous[0]
+            else:
+                reason = None
+                claimed[decision.region] = ['preserve']
+                preserved.append({'region': decision.region, 'reason': decision.reason})
+            validation_results.append({'decision': decision.model_dump(),
+                                       'status': 'rejected' if reason else 'passed',
+                                       'firstFailure': reason})
+            continue
+        proposal = decision
         tid = proposal.technique_id
         item = catalog.entries.get(tid)
         reason = None
@@ -164,7 +197,7 @@ def validate_design(design, catalog=None):
             region, entry = item
             if entry.get('enabled') is False:
                 reason = 'disabled_technique'
-            elif region in preserved:
+            elif claimed.get(region) == ['preserve']:
                 reason = 'contradicts_preserved_area'
             elif not reliable(design.visibility.get(region)):
                 reason = 'region_unavailable_or_uncertain'
@@ -220,6 +253,8 @@ def validate_design(design, catalog=None):
                         reason = 'unreliable_' + reference + '_color_reference'
         if reason is None:
             reason = technique_evidence_rejection(proposal.structured_evidence, region, tid, proposal.color_delta)
+        if reason is None:
+            claimed.setdefault(region, []).append(tid)
         validation_results.append({
             'proposal': proposal.model_dump(),
             'structuredEvidence': proposal.structured_evidence.model_dump() if proposal.structured_evidence else None,
@@ -254,7 +289,7 @@ def validate_design(design, catalog=None):
         catalog_version=catalog.data['table_version'], threshold_status='aesthetic_thresholds_not_used',
         measurement_source='model_visual_observations_with_local_geometry_protection',
         selection_method='model_visual_reasoning_v1', look_direction=design.look_direction,
-        preserved_areas=[area.model_dump() for area in design.preserved_areas],
+        preserved_areas=preserved,
         rejected_proposals=rejected, validation_results=validation_results, selected=selected)
 
 
@@ -359,8 +394,13 @@ def planning_prompt(style, catalog=None):
         'style and the balance with other facial areas, not merely how they enhance this area alone. '
         'Provide an overall look_direction identifying the intended visual emphasis, the supporting '
         'areas, and their coordinated color balance and finish; '
-        'it cannot authorize techniques absent from proposals. List areas to leave alone in preserved_areas '
-        'with reasons. An area cannot simultaneously be preserved and proposed for editing. '
+        'it cannot authorize a technique absent from its own entry in region_decisions. '
+        'Use ONE ordered region_decisions list for every area considered. Each entry has '
+        'kind="preserve" with a reason, or kind="propose" with one catalog technique and its '
+        'evidence. Never both preserve and propose the same region. Multiple propose entries '
+        'for one region are allowed only when their techniques are compatible, each has distinct '
+        'observed support, and together they serve the coordinated look. Never duplicate a '
+        'technique or write two preserve entries for one region. At most seven propose entries total. '
         'Do not invent aesthetic scores, numeric defect measurements or threshold evidence. '
         'Visibility refers to anatomy, not whether makeup is present or needs changing. '
         'Report all seven visibility regions. Mark uncertain or occluded areas unavailable. '

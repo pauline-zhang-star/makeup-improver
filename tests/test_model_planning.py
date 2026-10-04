@@ -17,7 +17,7 @@ def evidence(region='brows', **changes):
 
 
 def proposal(tid='brow_04', **kwargs):
-    value = dict(technique_id=tid, intensity=.4,
+    value = dict(kind='propose', technique_id=tid, intensity=.4,
                  observation='There are small visible gaps toward the brow tail.',
                  style_reason='A groomed brow balances the more saturated lip.',
                  application='Fill gaps with fine strokes within the original outline.')
@@ -33,7 +33,7 @@ def design(proposals=None):
                 lighting_gate=dict(value=True, detection_confidence=.95),
                 color_references={k: dict(value=True, detection_confidence=.95)
                                   for k in ('hair', 'iris', 'undertone')},
-                proposals=[proposal()] if proposals is None else proposals)
+                region_decisions=[proposal()] if proposals is None else proposals)
 
 
 def color(tid='lips_01', **delta):
@@ -48,7 +48,7 @@ def test_selects_only_model_actions_preserves_order_evidence_and_strength():
     assert [v['technique_id'] for v in plan.selected]==['lips_01','brow_04']
     assert plan.selected[0]['color_delta']['delta_chroma']==.025
     assert plan.selected[1]['intensity']==.4
-    assert plan.selected[1]['evidence'][0]['observation']==source['proposals'][1]['observation']
+    assert plan.selected[1]['evidence'][0]['observation']==source['region_decisions'][1]['observation']
     assert source==before
     assert plan.threshold_status=='aesthetic_thresholds_not_used'
 
@@ -98,8 +98,37 @@ def test_conflicts_duplicates_and_preserved_areas():
     plan=validate_design(design([color(),color('lips_04',delta_chroma=-.02),color()]))
     assert len(plan.selected)==1
     assert [r['reason'] for r in plan.rejected_proposals]==['conflicts_with:lips_01','duplicate_technique']
-    d=design();d['preserved_areas']=[dict(region='brows',reason='Already well defined.')]
+    d=design();d['region_decisions'].insert(0, dict(kind='preserve',region='brows',reason='Already well defined.'))
     assert validate_design(d).rejected_proposals[0]['reason']=='contradicts_preserved_area'
+
+
+def test_region_decisions_keep_compatible_techniques_and_reject_late_preserve():
+    choices = [proposal('brow_04'), proposal('brow_05'),
+               dict(kind='preserve', region='brows', reason='No brow change needed.')]
+    plan = validate_design(design(choices))
+    assert [item['technique_id'] for item in plan.selected] == ['brow_04', 'brow_05']
+    assert plan.preserved_areas == []
+    assert plan.validation_results[-1]['firstFailure'] == 'region_already_decided:brow_04'
+
+
+def test_rejected_technique_does_not_claim_region_and_preserve_blocks_later_proposal():
+    choices = [proposal('brow_04', intensity=.9), proposal('brow_05'),
+               dict(kind='preserve', region='lips', reason='Lip color already fits.'), color()]
+    plan = validate_design(design(choices))
+    assert [item['technique_id'] for item in plan.selected] == ['brow_05']
+    assert [item['reason'] for item in plan.rejected_proposals] == [
+        'invalid_or_excessive_strength', 'contradicts_preserved_area']
+    assert plan.preserved_areas == [{'region': 'lips', 'reason': 'Lip color already fits.'}]
+
+
+def test_only_one_preserve_decision_per_region_and_proposal_cap():
+    with pytest.raises(ValidationError):
+        LookDesign.model_validate(design([
+            dict(kind='preserve', region='brows', reason='Already defined.'),
+            dict(kind='preserve', region='brows', reason='Still defined.')]))
+    with pytest.raises(ValidationError):
+        LookDesign.model_validate(design([proposal()] * 8 + [
+            dict(kind='preserve', region='lips', reason='Keep unchanged.')]))
 
 
 def test_hue_requires_lighting_and_reference_even_outside_hue_named_entries():
@@ -142,7 +171,7 @@ def test_auto_supports_reducing_existing_brow_and_lip_makeup():
     source = design([color('brow_02', delta_lightness=.025, delta_chroma=0),
                      color('lips_04', delta_chroma=-.025)])
     source['brow_makeup_evidence'] = excess_brow_evidence()
-    for item in source['proposals']:
+    for item in source['region_decisions']:
         item['structured_evidence'].update(current_state='excess_product', pigment_source='applied_makeup', operation='reduce_product', visual_cues=['product_buildup'])
     plan = validate_design(source)
     assert [item['technique_id'] for item in plan.selected] == ['brow_02', 'lips_04']
@@ -183,6 +212,15 @@ def test_strict_planning_schema_prevents_observed_format_failures():
     fmt = planning_response_format()
     assert fmt['type'] == 'json_schema' and fmt['json_schema']['strict']
     schema = fmt['json_schema']['schema']
+    assert 'region_decisions' in schema['required']
+    assert 'proposals' not in schema['properties']
+    assert 'preserved_areas' not in schema['properties']
+    assert {member['$ref'].split('/')[-1] for member in
+            schema['properties']['region_decisions']['items']['anyOf']} == {
+                'PreserveDecision', 'PlacementTechnique', 'ColorTechnique'}
+    assert schema['$defs']['PreserveDecision']['properties']['kind']['const'] == 'preserve'
+    for name in ('PlacementTechnique', 'ColorTechnique'):
+        assert schema['$defs'][name]['properties']['kind']['const'] == 'propose'
     assert set(schema['properties']['color_references']['properties']) == {'hair', 'iris', 'undertone'}
     color_schema = schema['$defs']['ColorTechnique']['properties']
     placement_schema = schema['$defs']['PlacementTechnique']['properties']
@@ -215,7 +253,7 @@ def test_strict_planning_schema_prevents_observed_format_failures():
 def test_brow_lightening_requires_product_evidence_without_filler(evidence, reason):
     source = design([color('brow_02', delta_lightness=.04, delta_chroma=0), color()])
     source['brow_makeup_evidence'] = evidence
-    source['proposals'][0]['structured_evidence'] = None
+    source['region_decisions'][0]['structured_evidence'] = None
     plan = validate_design(source)
     assert [x['technique_id'] for x in plan.selected] == ['lips_01']
     assert plan.rejected_proposals == [{'technique_id': 'brow_02', 'reason': reason}]
@@ -291,3 +329,6 @@ def test_wire_requires_nonnull_evidence_and_visibility_prompt_disambiguates_make
     prompt = planning_prompt(MakeupStyle.AUTO)
     assert 'visible=true even without' in prompt
     assert 'no defect is required' in prompt
+    assert 'Use ONE ordered region_decisions list' in prompt
+    assert 'Multiple propose entries' in prompt
+    assert 'preserved_areas' not in prompt

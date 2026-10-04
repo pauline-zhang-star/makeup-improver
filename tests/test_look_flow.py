@@ -287,7 +287,7 @@ def test_rejected_model_plan_makes_no_image_or_comparison_calls(image):
         'visibility': {r: {'value': True, 'detection_confidence': .95} for r in
                        ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush', 'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .95},
-        'proposals': [{'technique_id': 'unknown_technique', 'intensity': .3,
+        'region_decisions': [{'kind': 'propose', 'technique_id': 'unknown_technique', 'intensity': .3,
                        'observation': 'Visible brow tail.', 'style_reason': 'Balanced frame.',
                        'application': 'Fill sparse gaps.'}],
     })
@@ -472,7 +472,7 @@ def test_provider_plans_from_original_before_any_edit(image):
                        for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
                                       'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .98},
-        'proposals': [{'technique_id': 'brow_04', 'intensity': .4,
+        'region_decisions': [{'kind': 'propose', 'technique_id': 'brow_04', 'intensity': .4,
                        'structured_evidence': technique_evidence('brows'),
                        'observation': 'The outer brow has visible small gaps.',
                        'style_reason': 'A softly filled brow balances the existing lip makeup.',
@@ -506,13 +506,13 @@ def test_named_style_uses_model_proposals_without_recipe_or_score_replacement(im
                        for region in ('eyeliner', 'eyeshadow', 'brows', 'lips', 'blush',
                                       'nose_contour', 'foundation')},
         'lighting_gate': {'value': True, 'detection_confidence': .98},
-        'proposals': [{'technique_id': 'lips_01',
+        'region_decisions': [{'kind': 'propose', 'technique_id': 'lips_01',
             'structured_evidence': technique_evidence('lips'), 'color_delta': {
             'color_space': 'OKLCH', 'delta_lightness': .005, 'delta_chroma': .021,
             'delta_hue_degrees': 0}, 'observation': 'Existing lip pigment is muted rose.',
             'style_reason': 'A richer rose lip supports the evening eye makeup already present.',
-            'application': 'Apply pigment evenly inside the existing lip boundary.'}],
-        'preserved_areas': [{'region': 'brows', 'reason': 'The brows already frame the eyes clearly.'}],
+            'application': 'Apply pigment evenly inside the existing lip boundary.'},
+            {'kind': 'preserve', 'region': 'brows', 'reason': 'The brows already frame the eyes clearly.'}],
     }
     requests = []
     def handler(request):
@@ -529,16 +529,18 @@ def test_named_style_uses_model_proposals_without_recipe_or_score_replacement(im
         provider.close()
     assert [item['technique_id'] for item in plan.selected] == ['lips_01']
     assert plan.selected[0]['color_delta']['delta_chroma'] == .021
-    assert plan.selected[0]['observation'] == answer['proposals'][0]['observation']
-    assert plan.preserved_areas == answer['preserved_areas']
+    assert plan.selected[0]['observation'] == answer['region_decisions'][0]['observation']
+    assert plan.preserved_areas == [{'region': 'brows', 'reason': 'The brows already frame the eyes clearly.'}]
     assert saved['analysis_schema'] == plan.selection_method == 'model_visual_reasoning_v1'
+    assert [item['kind'] for item in saved['region_decisions']] == ['propose', 'preserve']
+    assert 'proposals' not in saved and 'preserved_areas' not in saved
     prompt = json.loads(requests[0].content)['messages'][0]['content']
     assert 'Date Night' in prompt and 'There is no fixed technique recipe' in prompt
     assert 'lip_skin_contrast_ratio' not in prompt
     assert 'below_threshold' not in prompt
     edit_prompt = enhancement_prompt(MakeupStyle.DATE_NIGHT, plan)
     assert answer['look_direction'] in edit_prompt
-    assert answer['proposals'][0]['application'] in edit_prompt
+    assert answer['region_decisions'][0]['application'] in edit_prompt
 
 
 def test_small_photo_uses_same_input_and_output_canvas_with_protected_padding():

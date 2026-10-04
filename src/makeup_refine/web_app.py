@@ -143,6 +143,11 @@ def public_job(job_id, directory):
             size = image.size
     plan = report.get('techniquePlan') or {}
     selected = plan.get('selected') or []
+    analysis = report.get('techniqueAnalysis') or {}
+    decisions = analysis.get('region_decisions')
+    if decisions is None:
+        decisions = ([{'kind': 'preserve', **area} for area in analysis.get('preserved_areas') or []]
+                     + [{'kind': 'propose', **item} for item in analysis.get('proposals') or []])
     status = report.get('status', 'starting')
     attempts = report.get('generationAttempts') or []
     reframing = next((item for item in attempts
@@ -180,6 +185,14 @@ def public_job(job_id, directory):
                      'basis': x.get('selection_basis'),
                      'evidence': x.get('structured_evidence') or x.get('evidence') or []}
                     for x in selected],
+        'planAvailable': bool(plan),
+        'lookDirection': plan.get('look_direction'),
+        'planningDecisions': [{'kind': item.get('kind'),
+                               'region': item.get('region') or
+                                         (item.get('structured_evidence') or {}).get('region'),
+                               'id': item.get('technique_id'), 'reason': item.get('reason')}
+                              for item in decisions],
+        'preserved': plan.get('preserved_areas') or [],
         'plannedGuides': planned_review_steps(report),
         'rejected': plan.get('rejected_proposals') or [],
         'pending': report.get('pendingChangeReviews') or [],

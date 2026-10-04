@@ -22,9 +22,15 @@ def test_public_job_keeps_failed_candidate_diagnostic_and_planned_guidance(tmp_p
     (directory / 'uploadedImage.png').write_bytes(png_bytes())
     report = {
         'status': 'rejected', 'requestedStyle': 'Date Night', 'candidateImage': 'candidateImage.png',
+        'techniqueAnalysis': {'region_decisions': [
+            {'kind': 'propose', 'technique_id': 'lips_01',
+             'structured_evidence': {'region': 'lips'}},
+            {'kind': 'preserve', 'region': 'brows', 'reason': 'Already defined.'}]},
         'inputCrop': {'sourceSize': [48, 96], 'workingSize': [48, 48],
                       'cropBox': [0, 24, 48, 72], 'reasons': ['paired_black_letterbox']},
-        'techniquePlan': {'selected': [{'technique_id': 'lips_01', 'region': 'lips',
+        'techniquePlan': {'look_direction': 'Richer lips with preserved brows.',
+                          'preserved_areas': [{'region': 'brows', 'reason': 'Already defined.'}],
+                          'selected': [{'technique_id': 'lips_01', 'region': 'lips',
                                        'instruction': 'Define the lip outline.',
                                        'application_zh': '沿原有唇线轻轻勾勒。',
                                        'selection_basis': 'style_baseline',
@@ -42,6 +48,10 @@ def test_public_job_keeps_failed_candidate_diagnostic_and_planned_guidance(tmp_p
     assert job['planned'][0]['instruction_zh'] == '沿原有唇线轻轻勾勒。'
     assert job['callouts'][0]['number'] == 1
     assert job['planned'][0]['basis'] == 'style_baseline'
+    assert job['planAvailable'] is True
+    assert job['lookDirection'] == 'Richer lips with preserved brows.'
+    assert [item['kind'] for item in job['planningDecisions']] == ['propose', 'preserve']
+    assert job['preserved'] == [{'region': 'brows', 'reason': 'Already defined.'}]
     assert job['attempts'][0]['checks']['geometry'] == 'failed'
     assert job['cost'] == .0123
     assert job['inputCrop']['workingSize'] == [48, 48]
@@ -57,6 +67,7 @@ def test_public_job_identifies_reframe_in_saved_trial(tmp_path):
     (directory / 'result.json').write_text(json.dumps(report))
     job = web_app.public_job('b' * 32, directory)
     assert job['providerReframing'] == {'faceScaleChangePercent': 18.8}
+    assert job['planAvailable'] is False
 
 
 def test_web_handlers_upload_and_static_routes_without_api_call(tmp_path, monkeypatch):

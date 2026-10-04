@@ -58,8 +58,51 @@ def display_image_file(directory):
     return None
 
 
+def timeout_metadata(directory):
+    """Summarize persisted workflow state without reading photo or prompt content."""
+    result = {}
+    try:
+        result = json.loads((directory / 'result.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        pass
+    calls = []
+    try:
+        usage = json.loads((directory / 'api-usage.json').read_text(encoding='utf-8'))
+        calls = usage.get('calls', []) if isinstance(usage, dict) else []
+    except (OSError, ValueError):
+        pass
+    calls = calls if isinstance(calls, list) else []
+    stage = next((call.get('stage') for call in reversed(calls)
+                  if isinstance(call, dict) and call.get('status') == 'in_flight'), None)
+    if stage not in {'planning', 'generation', 'comparison'}:
+        stage = ('comparison' if result.get('status') == 'enhanced_ready'
+                 else 'generation' if result.get('candidateImage')
+                 else 'planning' if result.get('techniquePlan')
+                 else 'preflight' if not calls else 'unknown')
+    return {'stage': stage, 'providerCallsStarted': len(calls),
+            'enhancedReady': (result.get('status') == 'enhanced_ready'
+                              and (directory / 'enhancedImage.png').is_file())}
+
+
 class VercelHandler(WebHandler):
     server_version = 'MakeupRefineVercel/1.0'
+
+    def serve_job(self, job_id, output, input_format, cookie, status_override=None):
+        job = public_job(job_id, output)
+        if job['afterUrl']:
+            image_file = display_image_file(output)
+            if image_file is None:
+                raise ValueError('No displayed image exists.')
+            job['afterUrl'] = compact_jpeg(image_file)
+            if job['originalUrl'] and input_format == 'HEIF':
+                job['originalUrl'] = compact_jpeg(output / 'originalImage.png', 800_000)
+            else:
+                job['originalUrl'] = 'client:original' if job['originalUrl'] else None
+        job['uploadedUrl'] = None
+        job['reviewUrl'] = None
+        if status_override:
+            job.update(status_override)
+        self.respond(200, job, cookie=cookie)
 
     def visitor(self):
         return guard().visitor(self.headers.get('Cookie', ''))
@@ -179,10 +222,30 @@ class VercelHandler(WebHandler):
                 self.respond(503, {'error': 'Could not start image generation.'}, cookie=cookie)
                 return
             except subprocess.TimeoutExpired:
-                if no_provider_calls(output):
+                diagnostics = timeout_metadata(output)
+                refunded = no_provider_calls(output)
+                if refunded:
                     guard().release(visitor, job_id)
-                guard().event('generation_timeout', visitor, job_id=job_id)
-                self.respond(504, {'error': 'Generation exceeded the free service time limit.'}, cookie=cookie)
+                detail = f"{diagnostics['stage']}:{diagnostics['providerCallsStarted']}"
+                print('makeup_generation_timeout', detail, flush=True)
+                guard().event('generation_timeout', visitor, job_id=job_id, detail=detail)
+                if diagnostics['enhancedReady']:
+                    try:
+                        self.serve_job(job_id, output, input_format, cookie, {
+                            'status': 'instructions_unavailable',
+                            'message': 'The enhanced image passed local checks, but the makeup-step comparison timed out.',
+                            'timeoutStage': diagnostics['stage'],
+                            'providerCallsStarted': diagnostics['providerCallsStarted'],
+                            'plannedGuides': [], 'callouts': [],
+                        })
+                        return
+                    except (OSError, ValueError, json.JSONDecodeError):
+                        pass
+                self.respond(504, {'error': 'Generation exceeded the free service time limit.',
+                                   'code': 'GENERATION_TIMEOUT',
+                                   'stage': diagnostics['stage'],
+                                   'providerCallsStarted': diagnostics['providerCallsStarted'],
+                                   'quotaRefunded': refunded}, cookie=cookie)
                 return
 
             result_file = output / 'result.json'
@@ -199,19 +262,8 @@ class VercelHandler(WebHandler):
                 return
             try:
                 job = public_job(job_id, output)
-                if job['afterUrl']:
-                    image_file = display_image_file(output)
-                    if image_file is None:
-                        raise ValueError('No displayed image exists.')
-                    job['afterUrl'] = compact_jpeg(image_file)
-                    if job['originalUrl'] and input_format == 'HEIF':
-                        job['originalUrl'] = compact_jpeg(output / 'originalImage.png', 800_000)
-                    else:
-                        job['originalUrl'] = 'client:original' if job['originalUrl'] else None
-                job['uploadedUrl'] = None
-                job['reviewUrl'] = None
                 guard().event('generation_finished', visitor, job_id=job_id, detail=job['status'])
-                self.respond(200, job, cookie=cookie)
+                self.serve_job(job_id, output, input_format, cookie)
             except (OSError, ValueError, json.JSONDecodeError):
                 guard().event('result_unavailable', visitor, job_id=job_id)
                 self.respond(502, {'error': 'The generated result could not be displayed.'}, cookie=cookie)

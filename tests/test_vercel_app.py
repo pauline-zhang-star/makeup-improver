@@ -203,6 +203,72 @@ def test_vercel_keeps_quota_after_a_provider_request_even_if_result_fails(tmp_pa
     assert guard.reservations == 1 and guard.releases == []
 
 
+def test_timeout_reports_active_stage_without_refunding_a_provider_call(tmp_path, monkeypatch):
+    guard = FakeGuard()
+    monkeypatch.setattr(vercel_app, '_GUARD', guard)
+    monkeypatch.setattr(vercel_app, 'ROOT', tmp_path)
+    model = tmp_path / 'models' / 'face_landmarker.task'
+    model.parent.mkdir()
+    model.write_bytes(b'model')
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+
+    def fake_run(command, **kwargs):
+        output = Path(command[command.index('--output') + 1])
+        output.mkdir()
+        (output / 'result.json').write_text(json.dumps({'status': 'plan_ready'}))
+        (output / 'api-usage.json').write_text(json.dumps({'recordedCalls': 2, 'calls': [
+            {'stage': 'planning', 'status': 'response_received'},
+            {'stage': 'generation', 'status': 'in_flight'},
+        ]}))
+        raise vercel_app.subprocess.TimeoutExpired(command, 270)
+
+    monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
+    body = json.dumps({'style': 'Auto', 'image': base64.b64encode(photo_bytes()).decode()}).encode()
+    status, payload, _ = request('do_POST', '/api/generate', body)
+    assert status == 504
+    assert json.loads(payload)['stage'] == 'generation'
+    assert json.loads(payload)['quotaRefunded'] is False
+    assert guard.releases == []
+    assert ('generation_timeout', guard.events[-1][1], 'generation:2') == guard.events[-1]
+
+
+def test_timeout_returns_checked_image_when_only_comparison_is_pending(tmp_path, monkeypatch):
+    guard = FakeGuard()
+    monkeypatch.setattr(vercel_app, '_GUARD', guard)
+    monkeypatch.setattr(vercel_app, 'ROOT', tmp_path)
+    model = tmp_path / 'models' / 'face_landmarker.task'
+    model.parent.mkdir()
+    model.write_bytes(b'model')
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+
+    def fake_run(command, **kwargs):
+        output = Path(command[command.index('--output') + 1])
+        output.mkdir()
+        (output / 'originalImage.png').write_bytes(photo_bytes())
+        (output / 'enhancedImage.png').write_bytes(photo_bytes())
+        (output / 'result.json').write_text(json.dumps({
+            'status': 'enhanced_ready', 'enhancedImage': 'enhancedImage.png', 'steps': [],
+        }))
+        (output / 'api-usage.json').write_text(json.dumps({'recordedCalls': 3, 'calls': [
+            {'stage': 'planning', 'status': 'response_received'},
+            {'stage': 'generation', 'status': 'response_received'},
+            {'stage': 'comparison', 'status': 'in_flight'},
+        ]}))
+        raise vercel_app.subprocess.TimeoutExpired(command, 270)
+
+    monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
+    body = json.dumps({'style': 'Auto', 'image': base64.b64encode(photo_bytes()).decode()}).encode()
+    status, payload, _ = request('do_POST', '/api/generate', body)
+    job = json.loads(payload)
+    assert status == 200
+    assert job['status'] == 'instructions_unavailable'
+    assert job['afterUrl'].startswith('data:image/jpeg;base64,')
+    assert job['originalUrl'] == 'client:original'
+    assert job['timeoutStage'] == 'comparison'
+    assert job['plannedGuides'] == [] and job['callouts'] == []
+    assert guard.releases == []
+
+
 def test_redis_guard_never_sends_photo_data_and_fails_closed(monkeypatch):
     from makeup_refine.redis_guard import RedisGuard
 

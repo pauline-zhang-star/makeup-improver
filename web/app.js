@@ -26,7 +26,11 @@ const translations = {
     detailsKicker:'THE DETAILS', guidanceTitle:'怎样化出这个妆', plannedTitle:'计划技法 · 尚未确认效果', auditTitle:'本次记录', auditOpen:'展开详情 ＋', auditClose:'收起详情 −', uploadedLink:'查看未裁剪的上传图 ↗', fullReview:'查看完整测试记录 ↗', footer:'为你设计 · 由你决定',
     styleAuto:['自动匹配','AI 根据照片选择'], styleNatural:['自然清透','轻盈日常'], styleWork:['通勤精致','干净利落'], styleKorean:['韩系柔和','柔雾与层次'], styleFresh:['元气清新','明亮有精神'], styleDate:['约会夜妆','更鲜明的妆感'], styleSophisticated:['知性高级','克制的轮廓'], styleGlam:['柔和华丽','柔焦光泽'],
     invalidFile:'请选择不超过 12 MB 的 JPG、PNG 或 HEIC 照片。', readFile:'无法读取这张照片。', badResponse:'本机服务返回了无法读取的内容。', unavailable:'本机服务暂时不可用。',
-    progressUpload:'上传到本机服务，随后检查清晰度与人脸。', progressChecking:'正在核对生成效果', progressDrawing:'正在绘制你的妆容', progressAnalyzing:'正在分析照片',
+    progressUpload:'上传到本机服务，随后检查清晰度与人脸。', progressChecking:'正在核对生成效果', progressDrawing:'正在绘制你的妆容', progressAnalyzing:'正在分析照片', serverlessWorking:'正在处理妆容',
+    serverlessElapsed:(seconds)=>`已等待 ${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, '0')} 秒。照片分析、图片生成和结果核对都在同一次请求中进行，目前无法显示实时阶段；服务端约 4 分半后会结束请求。`,
+    generationTimedOut:(stage, refunded)=>`本次生成超时（${stage}阶段）。${refunded ? '尚未调用图片服务，本次不计入免费次数。' : '已经开始调用模型，本次计入免费次数，并可能产生 API 费用。'}请查看下方剩余次数，避免连续重试。`,
+    timeoutPartial:'效果图已通过本机检查，但生成操作指导时超时。你仍可拖动对比；这张图暂时没有经过原图对照验证的步骤。',
+    timeoutStageLabels:{planning:'妆容规划', generation:'图片生成', comparison:'变化对照', preflight:'照片检查', unknown:'处理'},
     progressCheckDetail:'对照原图核查五官和实际妆容变化。', progressDrawDetail:(n)=>`已选择 ${n} 项技法，正在生成一张完整效果图。`, progressAnalyzeDetail:'先检查照片，再结合风格挑选合适的技法。',
     retryRead:'正在重试读取结果…', displayError:'结果已保存，但页面显示失败。请打开完整测试记录。', count:(n)=>`${n} 项`, guideFallback:'查看完整测试记录。', legacyGuide:'这份旧记录未保存中文指导；下方显示英文原文。',
     quota:(visitor,total)=>`匿名访客今日还可生成 ${visitor} 次；全站剩余 ${total} 次。每日 00:00 UTC 重置。`, visitorLimit:'今天的两次生成机会已用完，请明天再来。', dailyLimit:(limit)=>`今天全站的 ${limit} 次生成机会已用完，请明天再来。`, busy:'已有照片正在处理，请稍后再试；本次不计入次数。', resultExpired:'这次照片结果已过期并被清除。请上传新照片再试。',
@@ -52,7 +56,11 @@ const translations = {
     detailsKicker:'THE DETAILS', guidanceTitle:'How to get this look', plannedTitle:'Planned techniques · result unverified', auditTitle:'Run details', auditOpen:'Show details ＋', auditClose:'Hide details −', uploadedLink:'View uncropped upload ↗', fullReview:'View full test record ↗', footer:'Designed for you · Decided by you',
     styleAuto:['Auto','AI chooses from your photo'], styleNatural:['Natural','Light everyday polish'], styleWork:['Work / Polished','Clean and refined'], styleKorean:['Korean Soft','Soft focus and layers'], styleFresh:['Fresh','Bright and lively'], styleDate:['Date Night','More defined makeup'], styleSophisticated:['Sophisticated','Balanced definition'], styleGlam:['Soft Glam','Soft-focus glow'],
     invalidFile:'Choose a JPG, PNG, or HEIC photo under 12 MB.', readFile:'Could not read this photo.', badResponse:'The local service returned unreadable content.', unavailable:'The local service is temporarily unavailable.',
-    progressUpload:'Sending the photo to the local service, then checking clarity and face visibility.', progressChecking:'Reviewing the generated result', progressDrawing:'Creating your look', progressAnalyzing:'Analyzing your photo',
+    progressUpload:'Sending the photo to the local service, then checking clarity and face visibility.', progressChecking:'Reviewing the generated result', progressDrawing:'Creating your look', progressAnalyzing:'Analyzing your photo', serverlessWorking:'Creating your makeup look',
+    serverlessElapsed:(seconds)=>`Waiting ${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s. Photo analysis, image generation and review happen in one request, so the live stage is unavailable. The server ends the request after about 4½ minutes.`,
+    generationTimedOut:(stage, refunded)=>`This run timed out during ${stage}. ${refunded ? 'No model call began, so this did not use a free try.' : 'A model call began, so this used a free try and may have incurred API cost.'} Check your remaining tries before retrying.`,
+    timeoutPartial:'The enhanced image passed local checks, but the makeup-step comparison timed out. You can still drag to compare; verified how-to steps are unavailable for this image.',
+    timeoutStageLabels:{planning:'makeup planning', generation:'image generation', comparison:'change comparison', preflight:'photo checking', unknown:'processing'},
     progressCheckDetail:'Comparing facial features and visible makeup changes with the original.', progressDrawDetail:(n)=>`${n} techniques selected. Generating one complete image.`, progressAnalyzeDetail:'Checking the photo, then choosing techniques for the style.',
     retryRead:'Retrying the result…', displayError:'The result was saved, but the page could not show it. Open the full test record.', count:(n)=>`${n} steps`, guideFallback:'See the full test record.', legacyGuide:'This older result has no saved Chinese instructions; the English original is shown.',
     quota:(visitor,total)=>`Anonymous visitor: ${visitor} tries left today; ${total} left site-wide. Resets at 00:00 UTC.`, visitorLimit:'Your two tries for today are used up. Please return tomorrow.', dailyLimit:(limit)=>`The site-wide limit of ${limit} tries has been reached today. Please return tomorrow.`, busy:'Another photo is being processed. Try again shortly; this does not use a try.', resultExpired:'This photo result has expired and was removed. Upload a new photo to try again.',
@@ -78,7 +86,7 @@ const terminal = new Set([
   'completed', 'completed_no_changes', 'completed_no_visible_changes',
   'instructions_unavailable', 'planning_rejected', 'failed', 'rejected', 'candidate_rejected',
 ]);
-const state = {file: null, previewUrl: null, sentImageDataUrl: null, style: 'Auto', jobId: null, timer: null, dragging: false, lastJob: null, progressStarted: false, error: null, errorKey: null, quota: null};
+const state = {file: null, previewUrl: null, sentImageDataUrl: null, style: 'Auto', jobId: null, timer: null, serverlessProgressTimer: null, serverlessStartedAt: null, dragging: false, lastJob: null, progressStarted: false, error: null, errorKey: null, quota: null};
 
 function renderQuota() {
   show('quota-status', Boolean(state.quota?.limited));
@@ -110,8 +118,11 @@ function applyLanguage() {
     if (terminal.has(state.lastJob.status)) renderJob(state.lastJob, true);
     else progressFor(state.lastJob);
   } else if (state.progressStarted && !$('progress').hidden) {
-    $('progress-title').textContent = t('preparing');
-    $('progress-detail').textContent = t('progressUpload');
+    if (state.serverlessStartedAt) renderServerlessProgress();
+    else {
+      $('progress-title').textContent = t('preparing');
+      $('progress-detail').textContent = t('progressUpload');
+    }
   } else if (state.error) setMessage(state.errorKey ? t(state.errorKey) : state.error, 'error');
 }
 
@@ -266,6 +277,8 @@ async function jsonResponse(response) {
   if (!response.ok) {
     const error = new Error(body.error || t('unavailable'));
     error.code = body.code;
+    error.stage = body.stage;
+    error.quotaRefunded = body.quotaRefunded;
     throw error;
   }
   return body;
@@ -283,9 +296,18 @@ function beginProgress() {
   $('progress-title').textContent = t('preparing');
   $('progress-detail').textContent = t('progressUpload');
   $('progress-fill').style.width = '8%';
+  $('progress-fill').classList.remove('indeterminate');
+  $('progress').classList.remove('serverless');
   for (const id of ['step-upload', 'step-plan', 'step-create', 'step-compare']) $(id).classList.remove('active');
   $('step-upload').classList.add('active');
   $('result-section').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function renderServerlessProgress() {
+  if (!state.serverlessStartedAt) return;
+  const seconds = Math.floor((Date.now() - state.serverlessStartedAt) / 1000);
+  $('progress-title').textContent = t('serverlessWorking');
+  $('progress-detail').textContent = t('serverlessElapsed', seconds);
 }
 
 async function generate() {
@@ -298,9 +320,11 @@ async function generate() {
     if (state.quota.mode === 'serverless') {
       const prepared = await prepareServerlessPhoto(state.file);
       state.sentImageDataUrl = prepared.preview;
-      $('progress-title').textContent = t('progressAnalyzing');
-      $('progress-detail').textContent = t('progressAnalyzeDetail');
-      $('progress-fill').style.width = '24%';
+      state.serverlessStartedAt = Date.now();
+      renderServerlessProgress();
+      $('progress-fill').classList.add('indeterminate');
+      $('progress').classList.add('serverless');
+      state.serverlessProgressTimer = setInterval(renderServerlessProgress, 1000);
       const response = await fetch('/api/generate', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({style: state.style, image: prepared.image}),
@@ -323,10 +347,18 @@ async function generate() {
     history.replaceState(null, '', nextUrl);
     await pollJob();
   } catch (error) {
-    renderError(error.code === 'VISITOR_LIMIT' ? t('visitorLimit') :
+    const stage = t('timeoutStageLabels')[error.stage] || t('timeoutStageLabels').unknown;
+    renderError(error.code === 'GENERATION_TIMEOUT' ? t('generationTimedOut', stage, error.quotaRefunded) :
+      error.code === 'VISITOR_LIMIT' ? t('visitorLimit') :
       error.code === 'DAILY_LIMIT' ? t('dailyLimit', state.quota?.dailyLimit ?? 50) :
         error.code === 'SERVER_BUSY' ? t('busy') : error.message);
-  } finally { refreshQuota(); }
+  } finally {
+    clearInterval(state.serverlessProgressTimer);
+    state.serverlessProgressTimer = null;
+    state.serverlessStartedAt = null;
+    $('progress-fill').classList.remove('indeterminate');
+    refreshQuota();
+  }
 }
 
 function renderError(message, key = null) {
@@ -550,6 +582,9 @@ function renderJob(job, preserveSlider = false) {
   } else if (success) {
     message = t('success');
     kind = 'success';
+  } else if (job.timeoutStage === 'comparison' && hasPair) {
+    message = t('timeoutPartial');
+    kind = 'warning';
   } else if (job.providerReframing) {
     message = t('reframing', job.providerReframing.faceScaleChangePercent);
     kind = 'warning';

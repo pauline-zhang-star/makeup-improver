@@ -6,7 +6,7 @@ The current product flow is **Selfie → Optional Style (Auto) → Model designs
 
 ## Install
 
-Verified on this Apple Silicon laptop with Python 3.9.6 and MediaPipe 0.10.35. The existing `.venv` is ready to use; Python does not need to be replaced. For a fresh environment:
+Verified on this Apple Silicon laptop with Python 3.10 and MediaPipe 0.10.35. The local `.venv-mp021` contains the required HEIC decoder; the unqualified `python` command currently points to a separate Conda environment without `pillow-heif`. For a fresh environment:
 
 ```sh
 python3 -m venv .venv
@@ -23,10 +23,11 @@ The landmark asset comes from Google's [Face Landmarker documentation](https://a
 From this project directory, with `.env` containing `OPENAI_API_KEY` and the landmark model installed as above:
 
 ```sh
-MPLCONFIGDIR=/tmp/mpl PYTHONPATH=src .venv/bin/python -m makeup_refine.web_app
+MPLCONFIGDIR=/tmp/mpl PYTHONPATH=src .venv-mp021/bin/python -m makeup_refine.web_app
 ```
 
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Use the 中文 / EN toggle at the top to switch the page and result guidance without regenerating an image; the choice is saved in the browser. Choose a JPG or PNG, optionally choose a style, then generate. The page shows a click-to-jump and draggable original/result comparison, numbered arrows and observed instructions for accepted results. New planning and comparison calls save English and Simplified Chinese instructions in the same API responses. Older runs that lack Chinese instructions show the original English text with a clear notice. Rejected candidate images remain available for diagnostic comparison and their planned techniques are clearly labeled as unconfirmed. Expand Run details / 本次记录 for selected techniques, checks and estimated API cost; the full test record opens the existing raw audit with actual API prompts and responses. Photos, logs and results stay under ignored `outputs/web-uploads/` and `outputs/web-runs/`. The server listens only on this computer's loopback address, stores no account data, and does not put the API key in browser code. Clicking Generate sends the photo to the configured OpenAI API for planning, image generation and comparison and may incur API charges. Stop the page with Ctrl-C in its Terminal.
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Use the 中文 / EN toggle at the top to switch the page and result guidance without regenerating an image; the choice is saved in the browser. Choose a JPG, PNG, or HEIC photo, optionally choose a style, then generate. The page shows a click-to-jump and draggable original/result comparison, numbered arrows and observed instructions for accepted results. New planning and comparison calls save English and Simplified Chinese instructions in the same API responses. Older runs that lack Chinese instructions show the original English text with a clear notice. Rejected candidate images remain available for diagnostic comparison and their planned techniques are clearly labeled as unconfirmed. Expand Run details / 本次记录 for selected techniques, checks and estimated API cost; the full test record opens the existing raw audit with actual API prompts and responses. Photos, logs and results stay under ignored `outputs/web-uploads/` and `outputs/web-runs/`. The server listens only on this computer's loopback address, stores no account data, and does not put the API key in browser code. Clicking Generate sends the photo to the configured OpenAI API for planning, image generation and comparison and may incur API charges. Stop the page with Ctrl-C in its Terminal.
+If you activate a newly created `.venv`, install the project dependencies with `pip install -e '.[landmarks,dev]'` before running the same command with `.venv/bin/python`. The `pillow-heif` package is required for HEIC support even when testing a JPEG.
 
 ## Free Vercel deployment
 
@@ -37,6 +38,8 @@ To deploy, import [this GitHub repository](https://github.com/pauline-zhang-star
 Create a **free Upstash Redis** database in the [Upstash Console](https://console.upstash.com/), open its **REST** connection tab, and copy `UPSTASH_REDIS_REST_URL` and the **Standard** `UPSTASH_REDIS_REST_TOKEN`. The [Upstash free tier](https://upstash.com/pricing/redis) has a hard command allowance; do not upgrade it to a paid plan. In the Vercel project's **Settings → Environment Variables**, set those two secrets plus `OPENAI_API_KEY` (from the [OpenAI API dashboard](https://platform.openai.com/api-keys)), `MAKEUP_VISITOR_SECRET` (a new random secret, e.g. `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`), `MAKEUP_VISITOR_DAILY_LIMIT=2`, and `MAKEUP_GLOBAL_DAILY_LIMIT=50`. Add them to Production before the first deployment, then redeploy when adding or changing a value. Never commit these values. If the Upstash secret is missing or Redis is unavailable, generation fails closed before any OpenAI call.
 
 The anonymous ID is a signed, secure, HttpOnly browser cookie. Redis atomically reserves two starts per browser and 50 site-wide per UTC day; it refunds a reservation when the local photo checks stop the workflow before any provider API request. It keeps only hashed visitor IDs, counters and up to 1,000 metadata-only events per UTC day under `makeup:events:YYYY-MM-DD` for about 30 days; there is no photo in Redis. The result exists only in the active browser page after the temporary server request ends. Clearing cookies can reset an individual's ID but cannot bypass the site-wide limit. OpenAI API calls still incur their normal charges even when hosting remains free.
+
+The Vercel request ends after 270 seconds. The page shows elapsed time but cannot show a live stage because this adapter sends one synchronous response. On timeout, the server reports the last recorded API stage and whether a provider call began; a try is refunded only when none began. If an enhanced image already passed local checks and only the final comparison timed out, the page receives that image for before/after viewing without unverified how-to steps. Temporary server files are deleted after the response, so an older timed-out run cannot be recovered.
 
 ## Paid Render alternative
 

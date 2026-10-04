@@ -12,3 +12,5 @@ main{max-width:1350px;margin:auto;padding:0 38px 70px}.hero{height:335px;display
 @media(max-width:600px){.top-actions{gap:7px}.language-toggle button{padding:4px 7px}.local-pill{padding:5px 8px}}
 .audit-source-note{color:#9b8c84;font-style:italic;margin-top:12px}
 .quota-status{margin:12px 0 0;color:#8f6944;text-align:center;font-size:11px;line-height:1.5}
+.progress-track{overflow:hidden}.progress-track span.indeterminate{width:35%!important;animation:progress-slide 1.8s ease-in-out infinite;transition:none}@keyframes progress-slide{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
+.progress-panel.serverless .progress-steps{display:none}

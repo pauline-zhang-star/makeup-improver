@@ -79,3 +79,28 @@ def test_cosmetic_mouth_width_over_eight_percent_needs_review(monkeypatch, width
     assert report['mouthWidthReview']['status'] == status
     assert report['mouthWidthReview']['relativeLimit'] == .08
     assert report['maxFacialProportionChange'] == 0
+
+
+def test_eyeshadow_detector_drift_does_not_count_as_eye_closure(monkeypatch):
+    from makeup_refine import quality
+    p = landmarks()
+    original = Image.new('RGB', (800, 1200), 'gray')
+    candidate = original.copy()
+    # Makeup away from the protected aperture changes the model's lid reading.
+    candidate.putpixel((200, 300), (110, 110, 110))
+    before = dict(leftEyeOpeningPixels=48., rightEyeOpeningPixels=48.,
+                  noseWidthPixels=96., mouthWidthPixels=160.)
+    after = dict(before, leftEyeOpeningPixels=48 * .948)
+    monkeypatch.setattr(quality, 'paired_facial_metrics',
+                        lambda *_: (before, after, {}))
+    report = quality.validate_facial_proportions(
+        candidate, original, None, original_landmarks=p)
+    assert report['facialProportionRelativeChanges']['leftEyeOpeningPixels'] == pytest.approx(-.052)
+    assert report['eyeOpeningLandmarkShiftOnly'] == ['leftEyeOpeningPixels']
+    assert report['eyeAperturePixelEvidence']['leftEyeOpeningPixels']['changedPixels'] == 0
+
+    # A real edit inside the visible eye must still be rejected.
+    candidate.putpixel((280, 480), (110, 110, 110))
+    with pytest.raises(quality.SpikeError, match='eye opening must not decrease'):
+        quality.validate_facial_proportions(candidate, original, None,
+                                            original_landmarks=p)

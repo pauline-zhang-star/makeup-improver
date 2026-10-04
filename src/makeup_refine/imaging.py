@@ -3,7 +3,7 @@ from io import BytesIO
 import warnings
 import math
 import numpy as np
-from PIL import Image, ImageCms, ImageFilter, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageCms, ImageDraw, ImageFilter, ImageOps, UnidentifiedImageError
 from . import heif_support  # registers the Pillow HEIF decoder
 from .models import SpikeError
 
@@ -169,7 +169,8 @@ def composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
 
 def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
                         correction_strength: float = .65, soft_mask=None,
-                        hard_mask=None, soft_feather_pixels: float = 12):
+                        hard_mask=None, soft_feather_pixels: float = 12,
+                        outer_feather_mask=None, outer_feather_pixels: float = 8):
     """Keep protected pixels while matching low-frequency color at the seam.
 
     The generated makeup remains inside the supplied mask. A blurred local
@@ -179,13 +180,15 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
     """
     if edited.size != original.size or mask.size != original.size or mask.mode != 'L':
         raise SpikeError('QUALITY_CHECK_FAILED', 'The edge-safe composite dimensions or mask are invalid.')
-    for region_mask in (soft_mask, hard_mask):
+    for region_mask in (soft_mask, hard_mask, outer_feather_mask):
         if region_mask is not None and (region_mask.size != mask.size or region_mask.mode != 'L'):
             raise SpikeError('QUALITY_CHECK_FAILED', 'A regional composite mask is invalid.')
     if not 0 <= correction_strength <= 1:
         raise ValueError('correction_strength must be between zero and one')
     if not np.isfinite(soft_feather_pixels) or soft_feather_pixels <= 0:
         raise ValueError('soft_feather_pixels must be positive and finite')
+    if not np.isfinite(outer_feather_pixels) or outer_feather_pixels <= 0:
+        raise ValueError('outer_feather_pixels must be positive and finite')
     before = np.asarray(to_srgb(original), dtype=np.float32)
     after = np.asarray(to_srgb(edited), dtype=np.float32)
     alpha = np.asarray(mask, dtype=np.float32) / 255.
@@ -216,6 +219,21 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
         # zero so the last editable pixel does not create another hard seam.
         soft_alpha = np.where(soft_support, np.clip(2 * soft_blur - 1, 0., 1.), 0.)
         alpha = np.maximum(hard_alpha, soft_alpha)
+    outer_coverage = 0.
+    if outer_feather_mask is not None:
+        outer_support = (np.asarray(outer_feather_mask) > 0) & support
+        outer_coverage = float(np.mean(outer_support))
+        if np.any(outer_support):
+            # Fill enclosed openings before blurring: taper the outside of an
+            # eye edit without also erasing shadow next to the protected iris.
+            inverted = Image.fromarray(np.uint8(~outer_support) * 255).copy()
+            if not outer_support[0, 0]:
+                ImageDraw.floodfill(inverted, (0, 0), 0)
+            envelope = outer_support | (np.asarray(inverted) > 0)
+            blurred = np.asarray(Image.fromarray(np.uint8(envelope) * 255).filter(
+                ImageFilter.GaussianBlur(outer_feather_pixels)), dtype=np.float32) / 255.
+            outer_alpha = np.clip(2 * blurred - 1, 0., 1.)
+            alpha = np.where(outer_support, np.minimum(alpha, outer_alpha), alpha)
     radius = max(2, min(12, round(min(original.size) * .012)))
     base_low = np.asarray(Image.fromarray(np.uint8(before)).filter(
         ImageFilter.GaussianBlur(radius)), dtype=np.float32)
@@ -233,5 +251,7 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
         'editableCoverageFraction': float(np.mean(support)),
         'softRegionCoverageFraction': float(np.mean(soft_support)),
         'softFeatherPixels': soft_feather_pixels if soft_mask is not None else 0,
+        'outerFeatherCoverageFraction': outer_coverage,
+        'outerFeatherPixels': outer_feather_pixels if outer_feather_mask is not None else 0,
         'protectedPixelsRestoredExactly': True,
     }

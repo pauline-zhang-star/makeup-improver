@@ -195,19 +195,26 @@ class LookPipeline:
                 passed('registration', alignment.copy())
                 active_check = 'compositing'
                 blush_items = [item for item in plan.selected if item.get('region') == 'blush']
+                eye_items = [item for item in plan.selected
+                             if item.get('region') in {'eyeliner', 'eyeshadow', 'lashes'}]
+                image_scale = np.asarray(original.size)
+                eye_span = float(np.linalg.norm(
+                    (np.asarray(points[263]) - np.asarray(points[33])) * image_scale))
+                eye_mask = (direct_edit_mask(original.size, points, style, eye_items)
+                            if eye_items else None)
                 if blush_items:
                     other_items = [item for item in plan.selected if item.get('region') != 'blush']
                     blush_mask = direct_edit_mask(original.size, points, style, blush_items)
                     other_mask = (direct_edit_mask(original.size, points, style, other_items)
                                   if other_items else None)
-                    image_scale = np.asarray(original.size)
-                    eye_span = float(np.linalg.norm(
-                        (np.asarray(points[263]) - np.asarray(points[33])) * image_scale))
                     enhanced, composite_report = edge_safe_composite(
                         original, aligned, mask, soft_mask=blush_mask, hard_mask=other_mask,
-                        soft_feather_pixels=max(4, eye_span * .045))
+                        soft_feather_pixels=max(4, eye_span * .045),
+                        outer_feather_mask=eye_mask, outer_feather_pixels=max(3, eye_span * .025))
                 else:
-                    enhanced, composite_report = edge_safe_composite(original, aligned, mask)
+                    enhanced, composite_report = edge_safe_composite(
+                        original, aligned, mask, outer_feather_mask=eye_mask,
+                        outer_feather_pixels=max(3, eye_span * .025))
                 complexion_texture_report = {'textureRestorationApplied': False}
                 foundation_items = [item for item in plan.selected
                                     if item.get('region') == 'foundation']
@@ -230,7 +237,8 @@ class LookPipeline:
                 passed('landmark_geometry', {'maxLandmarkDeviation': deviation})
                 active_check = 'facial_proportions'
                 proportions = validate_facial_proportions(
-                    enhanced, original, self.landmarks, style=style)
+                    enhanced, original, self.landmarks, style=style,
+                    original_landmarks=points)
                 passed('facial_proportions', proportions)
                 active_check = 'protected_pixels'
                 preservation = validate_protected_pixels(original, enhanced, mask)

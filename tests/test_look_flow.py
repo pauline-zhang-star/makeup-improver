@@ -869,6 +869,25 @@ def test_edge_safe_composite_does_not_fade_a_full_makeup_core():
     assert result_delta < old_delta * .55
 
 
+def test_eye_outer_feather_softens_oval_without_fading_inner_eyeshadow():
+    from PIL import ImageDraw
+    original = Image.new('RGB', (160, 120), (100, 100, 100))
+    edited = Image.new('RGB', original.size, (180, 80, 80))
+    eye = Image.new('L', original.size, 0)
+    draw = ImageDraw.Draw(eye)
+    draw.ellipse((20, 15, 140, 105), fill=255)
+    draw.ellipse((53, 46, 107, 74), fill=0)
+    plain, _ = edge_safe_composite(original, edited, eye, correction_strength=0)
+    tapered, report = edge_safe_composite(
+        original, edited, eye, correction_strength=0,
+        outer_feather_mask=eye, outer_feather_pixels=8)
+    assert tapered.getpixel((20, 60))[0] < plain.getpixel((20, 60))[0]
+    assert tapered.getpixel((80, 44)) == plain.getpixel((80, 44))
+    assert tapered.getpixel((80, 60)) == original.getpixel((80, 60))
+    assert tapered.getpixel((19, 60)) == original.getpixel((19, 60))
+    assert report['outerFeatherCoverageFraction'] > 0
+
+
 def test_soft_cheek_composite_fades_inside_oval_without_fading_other_makeup():
     original = Image.new('RGB', (120, 100), (100, 100, 100))
     edited = Image.new('RGB', original.size, (180, 80, 80))

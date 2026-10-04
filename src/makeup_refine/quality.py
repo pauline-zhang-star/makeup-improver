@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
 
 from .landmarks import validate_face, UPPER_EYES, LOWER_EYES
 from .models import SpikeError
@@ -159,6 +160,33 @@ def paired_facial_metrics(original, candidate, detector):
     return first, second, audit
 
 
+def eye_aperture_pixel_evidence(original, candidate, original_landmarks):
+    """Check visible eye interiors and their lid-edge pixels independently of landmarks."""
+    if original.size != candidate.size:
+        raise SpikeError('QUALITY_CHECK_FAILED', 'Image dimensions changed.')
+    points = np.asarray(original_landmarks, dtype=float)
+    if points.ndim != 2 or points.shape[0] < 468 or points.shape[1] != 2:
+        raise SpikeError('QUALITY_CHECK_FAILED', 'Original eye landmarks are unavailable.')
+    xy = points * original.size
+    before, after = np.asarray(original), np.asarray(candidate)
+    evidence = {}
+    for key, upper, lower in zip(('leftEyeOpeningPixels', 'rightEyeOpeningPixels'),
+                                 UPPER_EYES, LOWER_EYES):
+        aperture = Image.new('L', original.size, 0)
+        ImageDraw.Draw(aperture).polygon(
+            [tuple(xy[i]) for i in upper] +
+            [tuple(xy[i]) for i in reversed(lower)], fill=255)
+        # The edit mask already protects a wider strip. These two pixels cover
+        # the observed lid edge without reaching the permitted eyeshadow.
+        protected = np.asarray(aperture.filter(ImageFilter.MaxFilter(5))) > 0
+        checked = int(np.count_nonzero(protected))
+        changed = np.any(before[protected] != after[protected], axis=1)
+        evidence[key] = {'exactlyUnchanged': bool(checked >= 10 and not np.any(changed)),
+                         'checkedPixels': checked,
+                         'changedPixels': int(np.count_nonzero(changed))}
+    return evidence
+
+
 EYE_OPENING_RELATIVE_LIMIT = .06
 # A named look may use a more visible eyelid/liner treatment. This only
 # permits a small cosmetic increase in the measured aperture; the directional
@@ -169,13 +197,15 @@ MOUTH_WIDTH_REVIEW_RELATIVE_LIMIT = .08
 
 
 def validate_facial_proportions(candidate, original, detector, max_relative_change=.05,
-                                style=None):
+                                style=None, original_landmarks=None):
     """Reject feature reshaping while allowing small cosmetic eye-opening effects.
 
     Eyeliner and double-eyelid makeup can change the measured eyelid opening a
     little without moving the eye or changing facial anatomy. Auto keeps the
     aperture increase to 6%; a named style may use up to 8% for a more visible
-    cosmetic treatment, but may never decrease either eye. Nose width remains
+    cosmetic treatment. A measured decrease is accepted only when every pixel
+    in the original visible eye aperture and its lid edge is unchanged; this
+    distinguishes detector drift from a changed eye. Nose width remains
     at the supplied (normally 5%) limit in both modes. Mouth width changes
     beyond 8% require review because lip liner can alter the measured outline.
     """
@@ -193,20 +223,27 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
               for key in changes if key != 'mouthWidthPixels'}
     for key in ('leftEyeOpeningPixels', 'rightEyeOpeningPixels'):
         limits[key] = eye_opening_limit
-    magnitude_violations = [key for key, change in changes.items()
-                            if key in limits and abs(change) > limits[key]]
     eye_opening_keys = {'leftEyeOpeningPixels', 'rightEyeOpeningPixels'}
+    aperture_evidence = (eye_aperture_pixel_evidence(original, candidate, original_landmarks)
+                         if original_landmarks is not None else {})
+    landmark_shift_only = sorted(key for key in eye_opening_keys
+                                 if changes[key] < 0 and
+                                 aperture_evidence.get(key, {}).get('exactlyUnchanged'))
+    magnitude_violations = [key for key, change in changes.items()
+                            if key in limits and abs(change) > limits[key]
+                            and key not in landmark_shift_only]
     # Cosmetic eyeliner or eyelid makeup may leave the aperture unchanged or
     # make it look slightly more open, but it must never make either eye look
     # more closed. This directional rule is separate from the magnitude cap.
     eye_opening_decrease_violations = [
         key for key in eye_opening_keys
-        if changes[key] < EYE_OPENING_MIN_RELATIVE_CHANGE
+        if changes[key] < EYE_OPENING_MIN_RELATIVE_CHANGE and key not in landmark_shift_only
     ]
     violations = sorted(set(magnitude_violations + eye_opening_decrease_violations))
     mouth_change = changes['mouthWidthPixels']
     mouth_review = abs(mouth_change) > MOUTH_WIDTH_REVIEW_RELATIVE_LIMIT + 1e-9
-    reported = max(violations or limits,
+    reportable = violations or (set(limits) - set(landmark_shift_only))
+    reported = max(reportable,
                    key=lambda key: abs(changes[key]) / max(limits[key], 1e-6))
     report = {'measurementAlignment': measurement_alignment,
               'measurementUnits': 'pixels',
@@ -225,7 +262,9 @@ def validate_facial_proportions(candidate, original, detector, max_relative_chan
               'facialProportionLimits': limits,
               'facialProportionMode': 'styled' if styled else 'auto',
               'eyeOpeningDirection': 'non_decreasing',
-              'eyeOpeningDecreaseViolations': eye_opening_decrease_violations}
+              'eyeOpeningDecreaseViolations': eye_opening_decrease_violations,
+              'eyeAperturePixelEvidence': aperture_evidence,
+              'eyeOpeningLandmarkShiftOnly': landmark_shift_only}
     if violations:
         pixel_change = abs(after[reported] - before[reported])
         report['measurementNeedsReview'] = pixel_change <= 1.0

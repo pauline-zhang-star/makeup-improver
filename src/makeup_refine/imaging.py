@@ -4,6 +4,7 @@ import warnings
 import math
 import numpy as np
 from PIL import Image, ImageCms, ImageFilter, ImageOps, UnidentifiedImageError
+from . import heif_support  # registers the Pillow HEIF decoder
 from .models import SpikeError
 
 Image.MAX_IMAGE_PIXELS = 20_000_000
@@ -112,8 +113,8 @@ def load_image(path: Path) -> Image.Image:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(path) as source:
-                if source.format not in {"JPEG", "MPO", "PNG", "WEBP"}:
-                    raise SpikeError("UNSUPPORTED_IMAGE", "Use a JPEG, PNG, or WebP image.")
+                if source.format not in {"JPEG", "MPO", "PNG", "WEBP", "HEIF"}:
+                    raise SpikeError("UNSUPPORTED_IMAGE", "Use a JPEG, PNG, WebP, or HEIC image.")
                 # Phone JPEGs may include a secondary HDR/gain-map image (MPO).
                 # Only the primary photograph belongs in the refinement pipeline.
                 source.seek(0)

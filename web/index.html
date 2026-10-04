@@ -30,9 +30,9 @@
       <section class="setup card" aria-labelledby="start-title">
         <div class="section-heading"><span class="section-num">01</span><div><p class="kicker" data-i18n="startKicker">START HERE</p><h2 id="start-title" data-i18n="yourPhoto">你的照片</h2></div></div>
         <label class="dropzone" id="dropzone" for="photo-input">
-          <input id="photo-input" type="file" accept="image/jpeg,image/png" hidden>
+          <input id="photo-input" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" hidden>
           <img id="photo-preview" alt="待上传照片预览" data-i18n-alt="previewAlt" hidden>
-          <span id="upload-placeholder" class="upload-placeholder"><span class="upload-icon">＋</span><strong data-i18n="upload">点击或拖放自拍照</strong><small data-i18n="uploadLimit">JPG / PNG · 最大 12 MB</small></span>
+          <span id="upload-placeholder" class="upload-placeholder"><span class="upload-icon">＋</span><strong data-i18n="upload">点击或拖放自拍照</strong><small data-i18n="uploadLimit">JPG / PNG / HEIC · 最大 12 MB</small></span>
           <span class="photo-action" id="photo-action" data-i18n="changePhoto" hidden>更换照片</span>
         </label>
         <p class="field-hint" data-i18n="photoHint">建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先在本机裁剪；点击生成后将工作图发送给 OpenAI API。</p>

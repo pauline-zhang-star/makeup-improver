@@ -90,6 +90,42 @@ def test_vercel_job_returns_image_only_in_response_and_deletes_working_files(tmp
     assert ('generation_finished', job['id'], 'completed') in guard.events
 
 
+def test_vercel_heic_upload_decodes_and_returns_jpeg_before_image(tmp_path, monkeypatch):
+    guard = FakeGuard()
+    monkeypatch.setattr(vercel_app, '_GUARD', guard)
+    monkeypatch.setattr(vercel_app, 'ROOT', tmp_path)
+    model = tmp_path / 'models' / 'face_landmarker.task'
+    model.parent.mkdir()
+    model.write_bytes(b'model')
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    heic = BytesIO()
+    Image.new('RGB', (64, 64), '#ae8278').save(heic, format='HEIF')
+
+    def fake_run(command, **kwargs):
+        upload = Path(command[command.index('-m') + 2])
+        assert upload.suffix == '.heic'
+        with Image.open(upload) as source:
+            assert source.format == 'HEIF'
+        output = Path(command[command.index('--output') + 1])
+        output.mkdir()
+        (output / 'originalImage.png').write_bytes(photo_bytes())
+        (output / 'enhancedImage.png').write_bytes(photo_bytes())
+        (output / 'result.json').write_text(json.dumps({
+            'status': 'completed', 'enhancedImage': 'enhancedImage.png', 'steps': [],
+        }))
+        (output / 'api-usage.json').write_text(json.dumps({'recordedCalls': 1, 'calls': [{}]}))
+        return type('Completed', (), {'returncode': 0})()
+
+    monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
+    body = json.dumps({'style': 'Auto', 'image': base64.b64encode(heic.getvalue()).decode()}).encode()
+    status, payload, _ = request('do_POST', '/api/generate', body)
+    job = json.loads(payload)
+    assert status == 200
+    assert job['originalUrl'].startswith('data:image/jpeg;base64,')
+    assert job['afterUrl'].startswith('data:image/jpeg;base64,')
+    assert guard.reservations == 1 and guard.releases == []
+
+
 def test_vercel_quota_rejects_before_photo_is_written(tmp_path, monkeypatch):
     guard = FakeGuard('DAILY_LIMIT')
     monkeypatch.setattr(vercel_app, '_GUARD', guard)

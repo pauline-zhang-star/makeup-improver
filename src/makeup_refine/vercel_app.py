@@ -20,8 +20,8 @@ from .redis_guard import RedisGuard
 from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job
 
 
-MAX_REQUEST_BYTES = 3_600_000
-MAX_IMAGE_BYTES = 2_700_000
+MAX_REQUEST_BYTES = 4_100_000
+MAX_IMAGE_BYTES = 3_000_000
 MAX_RESULT_IMAGE_BYTES = 2_200_000
 _GUARD = None
 
@@ -33,7 +33,7 @@ def guard():
     return _GUARD
 
 
-def compact_jpeg(path):
+def compact_jpeg(path, max_bytes=MAX_RESULT_IMAGE_BYTES):
     """Keep the single response below Vercel's 4.5 MB payload limit."""
     with Image.open(path) as source:
         image = source.convert('RGB')
@@ -43,7 +43,7 @@ def compact_jpeg(path):
             for quality in (88, 80, 72):
                 stream = BytesIO()
                 image.save(stream, format='JPEG', quality=quality, optimize=True)
-                if stream.tell() <= MAX_RESULT_IMAGE_BYTES:
+                if stream.tell() <= max_bytes:
                     return 'data:image/jpeg;base64,' + base64.b64encode(stream.getvalue()).decode()
     raise ValueError('The generated image is too large to display on this free service.')
 
@@ -135,8 +135,8 @@ class VercelHandler(WebHandler):
             if not 0 < len(raw) <= MAX_IMAGE_BYTES:
                 raise ValueError('Photo exceeds the free service upload limit.')
             with Image.open(BytesIO(raw)) as image:
-                if image.format not in ('JPEG', 'PNG') or getattr(image, 'n_frames', 1) != 1:
-                    raise ValueError('Use one JPEG or PNG photo.')
+                if image.format not in ('JPEG', 'PNG', 'HEIF') or getattr(image, 'n_frames', 1) != 1:
+                    raise ValueError('Use one JPEG, PNG, or HEIC photo.')
                 if image.width * image.height > 20_000_000:
                     raise ValueError('Photo dimensions are too large.')
                 image.verify()
@@ -163,7 +163,9 @@ class VercelHandler(WebHandler):
 
         with tempfile.TemporaryDirectory(prefix='makeup-', dir='/tmp') as temporary:
             directory = Path(temporary)
-            upload = directory / ('upload.jpg' if raw.startswith(b'\xff\xd8') else 'upload.png')
+            input_format = image.format
+            upload = directory / ('upload.jpg' if input_format == 'JPEG' else
+                                  'upload.heic' if input_format == 'HEIF' else 'upload.png')
             output = directory / 'result'
             upload.write_bytes(raw)
             os.chmod(upload, 0o600)
@@ -208,7 +210,10 @@ class VercelHandler(WebHandler):
                     if image_file is None:
                         raise ValueError('No displayed image exists.')
                     job['afterUrl'] = compact_jpeg(image_file)
-                    job['originalUrl'] = 'client:original' if job['originalUrl'] else None
+                    if job['originalUrl'] and input_format == 'HEIF':
+                        job['originalUrl'] = compact_jpeg(output / 'originalImage.png', 800_000)
+                    else:
+                        job['originalUrl'] = 'client:original' if job['originalUrl'] else None
                 job['uploadedUrl'] = None
                 job['reviewUrl'] = None
                 guard().event('generation_finished', visitor, job_id=job_id, detail=job['status'])

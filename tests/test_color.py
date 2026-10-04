@@ -36,6 +36,15 @@ def test_loader_retains_only_standard_profile(tmp_path):
     assert np.array_equal(loaded, original)
 
 
+def test_loader_accepts_heic_and_strips_camera_metadata(tmp_path):
+    path = tmp_path / 'photo.heic'
+    Image.new('RGB', (512, 512), (190, 145, 111)).save(path, format='HEIF')
+    loaded = load_image(path)
+    assert loaded.size == (512, 512)
+    assert loaded.mode == 'RGB'
+    assert set(loaded.info) == {'icc_profile'}
+
+
 def test_invalid_profile_is_not_silently_dropped(tmp_path):
     path = tmp_path / 'bad-profile.png'
     Image.new('RGB', (512, 512)).save(path, icc_profile=b'not an ICC profile')

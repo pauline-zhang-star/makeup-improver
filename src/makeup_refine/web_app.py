@@ -20,6 +20,7 @@ from urllib.parse import parse_qs
 from PIL import Image, UnidentifiedImageError
 
 from .api_usage import no_provider_calls
+from . import heif_support  # registers the Pillow HEIF decoder
 from .look_annotations import planned_review_steps, short_arrow
 from .look_models import MakeupStyle
 from .public_guard import AccessStore
@@ -352,7 +353,7 @@ class WebHandler(BaseHTTPRequestHandler):
             length = 0
         if self.headers.get('Content-Type', '').split(';')[0] != 'application/json' or not 0 < length <= MAX_REQUEST_BYTES:
             access_store().event('upload_rejected', visitor, detail='request_size_or_type')
-            self.respond(413, {'error': 'Upload a JPEG or PNG smaller than 12 MB.'}, cookie=cookie)
+            self.respond(413, {'error': 'Upload a JPEG, PNG, or HEIC smaller than 12 MB.'}, cookie=cookie)
             return
         try:
             request = json.loads(self.rfile.read(length))
@@ -367,8 +368,8 @@ class WebHandler(BaseHTTPRequestHandler):
                 raise ValueError('Photo exceeds 12 MB.')
             from io import BytesIO
             with Image.open(BytesIO(raw)) as image:
-                if image.format not in ('JPEG', 'PNG') or getattr(image, 'n_frames', 1) != 1:
-                    raise ValueError('Use one JPEG or PNG photo.')
+                if image.format not in ('JPEG', 'PNG', 'HEIF') or getattr(image, 'n_frames', 1) != 1:
+                    raise ValueError('Use one JPEG, PNG, or HEIC photo.')
                 if image.width * image.height > 20_000_000:
                     raise ValueError('Photo dimensions are too large.')
                 image.verify()
@@ -381,7 +382,7 @@ class WebHandler(BaseHTTPRequestHandler):
         if not model.is_file():
             self.respond(503, {'error': 'Face landmark model is unavailable.'}, cookie=cookie)
             return
-        extension = '.jpg' if raw.startswith(b'\xff\xd8') else '.png'
+        extension = {"JPEG": '.jpg', "PNG": '.png', "HEIF": '.heic'}[image.format]
         upload = UPLOADS / (job_id + extension)
         output = RUNS / job_id
         env = os.environ.copy()

@@ -14,10 +14,10 @@ const translations = {
     heroLine1:'看见更适合', heroLine2:'自己的', heroLine3:'妆容。',
     heroLede:'上传一张清晰自拍，选择喜欢的风格。我们会根据你现在的妆容，设计一张可以对照、可以跟着化的效果图。',
     point1:'保留你的样子', point2:'按原妆调整', point3:'逐步教你实现', aside:'YOUR LOOK, MORE YOU.',
-    startKicker:'START HERE', yourPhoto:'你的照片', previewAlt:'待上传照片预览', upload:'点击或拖放自拍照', uploadLimit:'JPG / PNG · 最大 12 MB', changePhoto:'更换照片',
+    startKicker:'START HERE', yourPhoto:'你的照片', previewAlt:'待上传照片预览', upload:'点击或拖放自拍照', uploadLimit:'JPG / PNG / HEIC · 最大 12 MB', changePhoto:'更换照片', heicReady:'HEIC 已选择，可点击生成', heicDecode:'这张 HEIC 超过线上直接上传限制，且当前浏览器无法转换；请用 Safari 打开，或先导出为 JPG。',
     photoHint:'建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先在本机裁剪；点击生成后将工作图发送给 OpenAI API。',
     publicPhotoHint:'建议上传正面、光线均匀、眉眼和嘴唇清楚可见的照片。点击生成后，服务器会将工作图发送给 OpenAI API；照片和结果只作临时处理，约两小时后清除。',
-    statelessPhotoHint:'照片仅在本次生成请求中临时处理，结果直接返回此页面；服务器不长期保存照片。免费服务有上传大小限制，过大的照片会在浏览器中先压缩。',
+    statelessPhotoHint:'照片仅在本次生成请求中临时处理，结果直接返回此页面；服务器不长期保存照片。过大的照片会在浏览器中先压缩；如果浏览器无法读取 HEIC，可直接上传不超过 3 MB 的 HEIC。',
     optional:'OPTIONAL', styleTitle:'想要的风格', styleIntro:'没有想法？保持「Auto」，让 AI 根据照片选择。', styleAria:'妆容风格', generate:'生成我的妆容',
     submitNote:'生成通常需要几分钟。上传质量不合格会在调用图片 API 前提示重拍。', resultKicker:'YOUR RESULT', resultTitle:'焕新的你',
     emptyTitle:'效果会在这里出现', emptyBody:'选择照片，开启一次为你设计的妆容体验。', preparing:'正在准备照片', progressInitial:'我们会先分析当前妆容，再生成效果图。',
@@ -25,7 +25,7 @@ const translations = {
     stageAria:'原图与生成图对比，点击照片或拖动分界线', beforeAlt:'原始照片', afterAlt:'生成的妆容照片', beforeTag:'原图', afterTag:'生成图', rangeAria:'拖动查看原图和妆容效果', compareHint:'点击照片任意位置，或按住拖动',
     detailsKicker:'THE DETAILS', guidanceTitle:'怎样化出这个妆', plannedTitle:'计划技法 · 尚未确认效果', auditTitle:'本次记录', auditOpen:'展开详情 ＋', auditClose:'收起详情 −', uploadedLink:'查看未裁剪的上传图 ↗', fullReview:'查看完整测试记录 ↗', footer:'为你设计 · 由你决定',
     styleAuto:['自动匹配','AI 根据照片选择'], styleNatural:['自然清透','轻盈日常'], styleWork:['通勤精致','干净利落'], styleKorean:['韩系柔和','柔雾与层次'], styleFresh:['元气清新','明亮有精神'], styleDate:['约会夜妆','更鲜明的妆感'], styleSophisticated:['知性高级','克制的轮廓'], styleGlam:['柔和华丽','柔焦光泽'],
-    invalidFile:'请选择不超过 12 MB 的 JPG 或 PNG 照片。', readFile:'无法读取这张照片。', badResponse:'本机服务返回了无法读取的内容。', unavailable:'本机服务暂时不可用。',
+    invalidFile:'请选择不超过 12 MB 的 JPG、PNG 或 HEIC 照片。', readFile:'无法读取这张照片。', badResponse:'本机服务返回了无法读取的内容。', unavailable:'本机服务暂时不可用。',
     progressUpload:'上传到本机服务，随后检查清晰度与人脸。', progressChecking:'正在核对生成效果', progressDrawing:'正在绘制你的妆容', progressAnalyzing:'正在分析照片',
     progressCheckDetail:'对照原图核查五官和实际妆容变化。', progressDrawDetail:(n)=>`已选择 ${n} 项技法，正在生成一张完整效果图。`, progressAnalyzeDetail:'先检查照片，再结合风格挑选合适的技法。',
     retryRead:'正在重试读取结果…', displayError:'结果已保存，但页面显示失败。请打开完整测试记录。', count:(n)=>`${n} 项`, guideFallback:'查看完整测试记录。', legacyGuide:'这份旧记录未保存中文指导；下方显示英文原文。',
@@ -40,10 +40,10 @@ const translations = {
     heroLine1:'Discover a look', heroLine2:'that feels', heroLine3:' like you.',
     heroLede:'Upload a clear selfie and choose a style if you like. We will build on your current makeup to create a result you can compare and recreate.',
     point1:'Keep your identity', point2:'Build on your makeup', point3:'Follow clear steps', aside:'YOUR LOOK, MORE YOU.',
-    startKicker:'START HERE', yourPhoto:'Your photo', previewAlt:'Selected selfie preview', upload:'Click or drop a selfie', uploadLimit:'JPG / PNG · Up to 12 MB', changePhoto:'Change photo',
+    startKicker:'START HERE', yourPhoto:'Your photo', previewAlt:'Selected selfie preview', upload:'Click or drop a selfie', uploadLimit:'JPG / PNG / HEIC · Up to 12 MB', changePhoto:'Change photo', heicReady:'HEIC selected; ready to generate', heicDecode:'This HEIC exceeds the direct upload limit and this browser cannot convert it. Open in Safari or export it as JPG first.',
     photoHint:'Use a front-facing photo with even light and visible brows, eyes and lips. Small faces or clear black borders may be cropped locally. The working image is sent to the OpenAI API after you click Generate.',
     publicPhotoHint:'Use a front-facing photo with even light and visible brows, eyes and lips. After you click Generate, the server sends a working image to the OpenAI API. Photos and results are temporary and removed after about two hours.',
-    statelessPhotoHint:'Photos are processed only during this request and the result returns to this page; the server does not retain them. Oversized photos are compressed in your browser for the free service.',
+    statelessPhotoHint:'Photos are processed only during this request and the result returns to this page; the server does not retain them. Oversized photos are compressed in your browser. If your browser cannot read HEIC, it can upload HEIC files up to 3 MB directly.',
     optional:'OPTIONAL', styleTitle:'Choose a style', styleIntro:'Not sure? Leave it on Auto and let AI choose from the photo.', styleAria:'Makeup style', generate:'Generate my look',
     submitNote:'Generation can take a few minutes. Low-quality uploads are rejected before the image API call.', resultKicker:'YOUR RESULT', resultTitle:'Your refined look',
     emptyTitle:'Your result will appear here', emptyBody:'Choose a photo to start your personalized makeup look.', preparing:'Preparing your photo', progressInitial:'We will review your makeup, then generate your new look.',
@@ -51,7 +51,7 @@ const translations = {
     stageAria:'Before and after comparison; click the photo or drag the divider', beforeAlt:'Original photo', afterAlt:'Enhanced makeup photo', beforeTag:'BEFORE', afterTag:'AFTER', rangeAria:'Drag to compare original and enhanced photos', compareHint:'Click anywhere on the photo or drag to compare',
     detailsKicker:'THE DETAILS', guidanceTitle:'How to get this look', plannedTitle:'Planned techniques · result unverified', auditTitle:'Run details', auditOpen:'Show details ＋', auditClose:'Hide details −', uploadedLink:'View uncropped upload ↗', fullReview:'View full test record ↗', footer:'Designed for you · Decided by you',
     styleAuto:['Auto','AI chooses from your photo'], styleNatural:['Natural','Light everyday polish'], styleWork:['Work / Polished','Clean and refined'], styleKorean:['Korean Soft','Soft focus and layers'], styleFresh:['Fresh','Bright and lively'], styleDate:['Date Night','More defined makeup'], styleSophisticated:['Sophisticated','Balanced definition'], styleGlam:['Soft Glam','Soft-focus glow'],
-    invalidFile:'Choose a JPG or PNG photo under 12 MB.', readFile:'Could not read this photo.', badResponse:'The local service returned unreadable content.', unavailable:'The local service is temporarily unavailable.',
+    invalidFile:'Choose a JPG, PNG, or HEIC photo under 12 MB.', readFile:'Could not read this photo.', badResponse:'The local service returned unreadable content.', unavailable:'The local service is temporarily unavailable.',
     progressUpload:'Sending the photo to the local service, then checking clarity and face visibility.', progressChecking:'Reviewing the generated result', progressDrawing:'Creating your look', progressAnalyzing:'Analyzing your photo',
     progressCheckDetail:'Comparing facial features and visible makeup changes with the original.', progressDrawDetail:(n)=>`${n} techniques selected. Generating one complete image.`, progressAnalyzeDetail:'Checking the photo, then choosing techniques for the style.',
     retryRead:'Retrying the result…', displayError:'The result was saved, but the page could not show it. Open the full test record.', count:(n)=>`${n} steps`, guideFallback:'See the full test record.', legacyGuide:'This older result has no saved Chinese instructions; the English original is shown.',
@@ -153,9 +153,15 @@ function renderStyles() {
   }
 }
 
+function isHeic(file) {
+  return ['image/heic', 'image/heif'].includes(file.type.toLowerCase()) || /\.(heic|heif)$/i.test(file.name);
+}
+
 function chooseFile(file) {
   if (!file) return;
-  if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 12 * 1024 * 1024) {
+  if ((!['image/jpeg', 'image/png'].includes(file.type) && !isHeic(file)) || file.size > 12 * 1024 * 1024) {
+    state.file = null;
+    $('generate').disabled = true;
     state.lastJob = null;
     state.errorKey = 'invalidFile';
     show('outcome', true);
@@ -173,6 +179,15 @@ function chooseFile(file) {
   state.file = file;
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   state.previewUrl = URL.createObjectURL(file);
+  $('upload-placeholder').querySelector('strong').textContent = t('upload');
+  $('upload-placeholder').querySelector('small').textContent = t('uploadLimit');
+  $('photo-preview').onerror = () => {
+    if (state.file !== file || !isHeic(file)) return;
+    show('photo-preview', false);
+    $('upload-placeholder').querySelector('strong').textContent = file.name;
+    $('upload-placeholder').querySelector('small').textContent = t('heicReady');
+    show('upload-placeholder', true);
+  };
   $('photo-preview').src = state.previewUrl;
   show('photo-preview', true);
   show('photo-action', true);
@@ -202,10 +217,16 @@ function readBase64(file) {
 }
 
 async function prepareServerlessPhoto(file) {
-  const originalDataUrl = `data:${file.type};base64,${await readBase64(file)}`;
-  const bitmap = await createImageBitmap(file);
+  const heic = isHeic(file);
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch (error) {
+    if (!heic || file.size > 3_000_000) throw new Error(t(heic ? 'heicDecode' : 'readFile'));
+    return {image: await readBase64(file), preview: null};
+  }
   try {
-    if (file.size <= 2_500_000 && bitmap.width * bitmap.height <= 20_000_000) {
+    if (!heic && file.size <= 2_500_000 && bitmap.width * bitmap.height <= 20_000_000) {
+      const originalDataUrl = `data:${file.type};base64,${await readBase64(file)}`;
       return {image: originalDataUrl.split(',', 2)[1], preview: originalDataUrl};
     }
     const canvas = document.createElement('canvas');

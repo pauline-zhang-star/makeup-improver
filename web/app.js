@@ -80,12 +80,8 @@ function savedLanguage() {
     const saved = localStorage.getItem('mirror-language');
     if (saved === 'en' || saved === 'zh') return saved;
   } catch { /* Private browsing may block storage; use browser language below. */ }
-  const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
-  for (const locale of preferred) {
-    const primary = String(locale).toLowerCase().split('-')[0];
-    if (primary === 'zh' || primary === 'en') return primary;
-  }
-  return 'en';
+  const preferred = navigator.languages?.[0] || navigator.language || '';
+  return String(preferred).toLowerCase().split('-')[0] === 'zh' ? 'zh' : 'en';
 }
 let language = savedLanguage();
 function t(key, ...args) {

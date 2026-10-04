@@ -21,6 +21,6 @@ services:
       - key: MAKEUP_VISITOR_DAILY_LIMIT
         value: "2"
       - key: MAKEUP_GLOBAL_DAILY_LIMIT
-        value: "20"
+        value: "50"
       - key: OPENAI_API_KEY
         sync: false

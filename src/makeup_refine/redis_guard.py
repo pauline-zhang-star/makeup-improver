@@ -17,7 +17,7 @@ elseif daily >= tonumber(ARGV[2]) then reason = 2
 else
   redis.call('INCR', KEYS[1]); redis.call('EXPIRE', KEYS[1], 172800)
   redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], 172800)
-  redis.call('SET', KEYS[3], '1', 'EX', 172800)
+  redis.call('SET', KEYS[3], ARGV[4], 'EX', 172800)
 end
 redis.call('LPUSH', KEYS[4], ARGV[3] .. ':' .. reason)
 redis.call('LTRIM', KEYS[4], 0, 999)
@@ -26,7 +26,7 @@ return reason
 '''
 
 RELEASE_SCRIPT = '''
-if redis.call('DEL', KEYS[3]) == 1 then
+if redis.call('GET', KEYS[3]) == ARGV[2] and redis.call('DEL', KEYS[3]) == 1 then
   if tonumber(redis.call('GET', KEYS[1]) or '0') > 0 then redis.call('DECR', KEYS[1]) end
   if tonumber(redis.call('GET', KEYS[2]) or '0') > 0 then redis.call('DECR', KEYS[2]) end
   redis.call('LPUSH', KEYS[4], ARGV[1])
@@ -46,7 +46,7 @@ return 1
 
 
 class RedisGuard(SignedVisitors):
-    def __init__(self, secret, url, token, visitor_limit=2, daily_limit=20, client=None):
+    def __init__(self, secret, url, token, visitor_limit=2, daily_limit=50, client=None):
         super().__init__(secret)
         if not url or not token or visitor_limit < 1 or daily_limit < 1:
             raise ValueError('Upstash credentials and positive quota limits are required.')
@@ -65,7 +65,7 @@ class RedisGuard(SignedVisitors):
             os.environ.get('UPSTASH_REDIS_REST_URL') or os.environ.get('KV_REST_API_URL'),
             os.environ.get('UPSTASH_REDIS_REST_TOKEN') or os.environ.get('KV_REST_API_TOKEN'),
             int(os.environ.get('MAKEUP_VISITOR_DAILY_LIMIT', '2')),
-            int(os.environ.get('MAKEUP_GLOBAL_DAILY_LIMIT', '20')),
+            int(os.environ.get('MAKEUP_GLOBAL_DAILY_LIMIT', '50')),
         )
 
     def command(self, *parts):
@@ -78,7 +78,9 @@ class RedisGuard(SignedVisitors):
         return payload['result']
 
     def keys(self, visitor, job_id, now):
-        day = utc_day(now)
+        return self.keys_for_day(visitor, job_id, utc_day(now))
+
+    def keys_for_day(self, visitor, job_id, day):
         identity = self.digest('visitor:' + visitor)
         return (f'makeup:q:{day}:v:{identity}', f'makeup:q:{day}:all',
                 f'makeup:reservation:{job_id}', f'makeup:events:{day}')
@@ -101,16 +103,19 @@ class RedisGuard(SignedVisitors):
                             'visitor': self.digest('visitor:' + visitor)[:24],
                             'job': job_id}, separators=(',', ':'))
         code = int(self.command('EVAL', RESERVE_SCRIPT, 4, *keys,
-                                self.visitor_limit, self.daily_limit, event))
+                                self.visitor_limit, self.daily_limit, event, utc_day(instant)))
         return {0: None, 1: 'VISITOR_LIMIT', 2: 'DAILY_LIMIT'}[code]
 
     def release(self, visitor, job_id, now=None):
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        day = self.command('GET', f'makeup:reservation:{job_id}')
+        if not day:
+            return 0
         event = json.dumps({'at': instant.isoformat(), 'event': 'generation_start_failed',
                             'visitor': self.digest('visitor:' + visitor)[:24],
                             'job': job_id}, separators=(',', ':'))
         return self.command('EVAL', RELEASE_SCRIPT, 4,
-                            *self.keys(visitor, job_id, instant), event)
+                            *self.keys_for_day(visitor, job_id, day), event, day)
 
     def event(self, name, visitor, job_id=None, detail=None, now=None):
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)

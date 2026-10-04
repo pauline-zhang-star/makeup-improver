@@ -27,13 +27,24 @@ def test_signed_visitor_cookie_and_daily_reset(tmp_path):
 
 
 def test_global_limit_is_atomic_across_concurrent_visitors(tmp_path):
-    store = AccessStore(tmp_path / 'state.sqlite3', 'test-secret', 2, 20)
+    store = AccessStore(tmp_path / 'state.sqlite3', 'test-secret', 2, 50)
     now = instant('2026-10-02')
     with ThreadPoolExecutor(max_workers=12) as pool:
-        outcomes = list(pool.map(lambda i: store.reserve(f'visitor-{i}', f'{i:032x}', now), range(32)))
-    assert outcomes.count(None) == 20
-    assert outcomes.count('DAILY_LIMIT') == 12
+        outcomes = list(pool.map(lambda i: store.reserve(f'visitor-{i}', f'{i:032x}', now), range(64)))
+    assert outcomes.count(None) == 50
+    assert outcomes.count('DAILY_LIMIT') == 14
     assert store.remaining('new-visitor', now)['dailyRemaining'] == 0
+
+
+def test_refund_is_idempotent_and_uses_reservation_day(tmp_path):
+    store = AccessStore(tmp_path / 'state.sqlite3', 'test-secret')
+    before_midnight = instant('2026-10-02')
+    next_day = instant('2026-10-03')
+    assert store.reserve('visitor', 'a' * 32, before_midnight) is None
+    assert store.release('visitor', 'a' * 32, next_day) is True
+    assert store.release('visitor', 'a' * 32, next_day) is False
+    assert store.remaining('visitor', before_midnight)['visitorRemaining'] == 2
+    assert store.remaining('visitor', before_midnight)['dailyRemaining'] == 50
 
 
 def test_temporary_images_and_results_expire_without_touching_metadata(tmp_path, monkeypatch):

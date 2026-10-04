@@ -14,6 +14,7 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
+from .api_usage import no_provider_calls
 from .look_models import MakeupStyle
 from .redis_guard import RedisGuard
 from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job
@@ -91,6 +92,7 @@ class VercelHandler(WebHandler):
             try:
                 visitor, cookie = self.visitor()
                 self.respond(200, {'limited': True, 'mode': 'serverless',
+                                   'dailyLimit': guard().daily_limit,
                                    **guard().remaining(visitor)}, cookie=cookie)
             except Exception:
                 self.respond(503, {'error': 'Usage limit service is unavailable.'})
@@ -181,11 +183,15 @@ class VercelHandler(WebHandler):
                 self.respond(503, {'error': 'Could not start image generation.'}, cookie=cookie)
                 return
             except subprocess.TimeoutExpired:
+                if no_provider_calls(output):
+                    guard().release(visitor, job_id)
                 guard().event('generation_timeout', visitor, job_id=job_id)
                 self.respond(504, {'error': 'Generation exceeded the free service time limit.'}, cookie=cookie)
                 return
 
             result_file = output / 'result.json'
+            if no_provider_calls(output):
+                guard().release(visitor, job_id)
             if not result_file.is_file():
                 # No report means failure happened before a provider was created.
                 # Native MediaPipe errors are otherwise lost with the /tmp worker.

@@ -58,7 +58,7 @@ class SignedVisitors:
 
 
 class AccessStore(SignedVisitors):
-    def __init__(self, path: Path, secret: str, visitor_limit=2, daily_limit=20):
+    def __init__(self, path: Path, secret: str, visitor_limit=2, daily_limit=50):
         super().__init__(secret)
         if visitor_limit < 1 or daily_limit < 1:
             raise ValueError('Positive daily limits are required.')
@@ -71,6 +71,8 @@ class AccessStore(SignedVisitors):
                 CREATE TABLE IF NOT EXISTS daily_quota (
                   day TEXT NOT NULL, scope TEXT NOT NULL, subject TEXT NOT NULL,
                   used INTEGER NOT NULL, PRIMARY KEY(day, scope, subject));
+                CREATE TABLE IF NOT EXISTS quota_reservations (
+                  job_id TEXT PRIMARY KEY, day TEXT NOT NULL, visitor_hash TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS access_events (
                   id INTEGER PRIMARY KEY, at_utc TEXT NOT NULL, event TEXT NOT NULL,
                   visitor_hash TEXT NOT NULL, job_id TEXT, detail TEXT);
@@ -119,6 +121,8 @@ class AccessStore(SignedVisitors):
                    ((instant - timedelta(days=EVENT_RETENTION_DAYS)).isoformat(),))
         db.execute('DELETE FROM daily_quota WHERE day < ?',
                    ((instant.date() - timedelta(days=7)).isoformat(),))
+        db.execute('DELETE FROM quota_reservations WHERE day < ?',
+                   ((instant.date() - timedelta(days=7)).isoformat(),))
 
     def prune(self):
         with self.connect() as db:
@@ -141,6 +145,8 @@ class AccessStore(SignedVisitors):
                     db.execute('INSERT INTO daily_quota(day,scope,subject,used) VALUES(?,?,?,1) '
                                'ON CONFLICT(day,scope,subject) DO UPDATE SET used=used+1',
                                (day, scope, key))
+                db.execute('INSERT INTO quota_reservations(job_id,day,visitor_hash) VALUES(?,?,?)',
+                           (job_id, day, subject))
             db.execute('INSERT INTO access_events(at_utc,event,visitor_hash,job_id,detail) '
                        'VALUES(?,?,?,?,?)', (instant.isoformat(),
                        'generation_blocked' if reason else 'generation_accepted',
@@ -149,18 +155,25 @@ class AccessStore(SignedVisitors):
         return reason
 
     def release(self, visitor, job_id, now=None):
-        """Undo a reservation only if the local workflow never started."""
+        """Undo an unused reservation once, including after UTC midnight."""
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        day = utc_day(instant)
         subject = self.digest('visitor:' + visitor)
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            reserved = db.execute('SELECT day FROM quota_reservations '
+                                  'WHERE job_id=? AND visitor_hash=?',
+                                  (job_id, subject)).fetchone()
+            if reserved is None:
+                return False
+            day = reserved[0]
+            db.execute('DELETE FROM quota_reservations WHERE job_id=?', (job_id,))
             for scope, key in [('visitor', subject), ('global', '*')]:
                 db.execute('UPDATE daily_quota SET used=MAX(0,used-1) '
                            'WHERE day=? AND scope=? AND subject=?', (day, scope, key))
             db.execute('INSERT INTO access_events(at_utc,event,visitor_hash,job_id,detail) '
                        'VALUES(?,?,?,?,?)', (instant.isoformat(), 'generation_start_failed',
                        subject, job_id, None))
+        return True
 
 
 def main():

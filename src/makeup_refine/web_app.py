@@ -19,6 +19,7 @@ from urllib.parse import parse_qs
 
 from PIL import Image, UnidentifiedImageError
 
+from .api_usage import no_provider_calls
 from .look_annotations import planned_review_steps, short_arrow
 from .look_models import MakeupStyle
 from .public_guard import AccessStore
@@ -32,7 +33,7 @@ RUNS = TEMP_ROOT / 'web-runs'
 STATE_DB = Path(os.environ.get('MAKEUP_STATE_DB', ROOT / 'outputs' / 'web-state.sqlite3'))
 VISITOR_SECRET = os.environ.get('MAKEUP_VISITOR_SECRET') or secrets.token_urlsafe(32)
 VISITOR_DAILY_LIMIT = int(os.environ.get('MAKEUP_VISITOR_DAILY_LIMIT', '2'))
-GLOBAL_DAILY_LIMIT = int(os.environ.get('MAKEUP_GLOBAL_DAILY_LIMIT', '20'))
+GLOBAL_DAILY_LIMIT = int(os.environ.get('MAKEUP_GLOBAL_DAILY_LIMIT', '50'))
 RESULT_TTL_SECONDS = 2 * 60 * 60
 JOB_ID = re.compile(r'^[0-9a-f]{32}$')
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
@@ -42,6 +43,7 @@ MIME = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
 ASSET_ROUTES = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
 JOB_PROCESSES = {}
+JOB_RESERVATIONS = {}
 _ACCESS_STORE = None
 _STORE_LOCK = threading.Lock()
 _JOB_START_LOCK = threading.Lock()
@@ -86,6 +88,7 @@ def cleanup_expired():
 def cleanup_loop():
     while True:
         try:
+            settle_finished_jobs()
             cleanup_expired()
             access_store().prune()
         except (OSError, sqlite3.Error) as exc:
@@ -98,6 +101,20 @@ def safe_job_directory(job_id):
         return None
     directory = RUNS / job_id
     return directory if directory.is_dir() else None
+
+
+def settle_finished_jobs():
+    """Refund public jobs that exited before their first provider request."""
+    if not PUBLIC_MODE:
+        return
+    with _JOB_START_LOCK:
+        for job_id, visitor in list(JOB_RESERVATIONS.items()):
+            process = JOB_PROCESSES.get(job_id)
+            if process is None or process.poll() is None:
+                continue
+            if no_provider_calls(RUNS / job_id):
+                access_store().release(visitor, job_id)
+            JOB_RESERVATIONS.pop(job_id, None)
 
 
 def callouts_for(report, size):
@@ -242,9 +259,12 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         if path == '/api/quota':
             visitor, cookie = self.visitor()
+            settle_finished_jobs()
             quota = access_store().remaining(visitor) if PUBLIC_MODE else {
                 'visitorRemaining': None, 'dailyRemaining': None, 'resetAt': None}
-            self.respond(200, {'limited': PUBLIC_MODE, **quota}, cookie=cookie)
+            self.respond(200, {'limited': PUBLIC_MODE,
+                               'dailyLimit': GLOBAL_DAILY_LIMIT if PUBLIC_MODE else None,
+                               **quota}, cookie=cookie)
             return
         if path in ASSET_ROUTES:
             name = ASSET_ROUTES[path]
@@ -261,6 +281,7 @@ class WebHandler(BaseHTTPRequestHandler):
         if len(parts) < 3 or parts[:2] != ['api', 'jobs']:
             self.respond(404, {'error': 'Not found.'})
             return
+        settle_finished_jobs()
         job_id, directory = parts[2], safe_job_directory(parts[2])
         if directory is None and len(parts) == 3 and JOB_ID.fullmatch(job_id) and any(
                 (UPLOADS / (job_id + suffix)).is_file() for suffix in ('.jpg', '.png')):
@@ -379,7 +400,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
             if reason:
                 error = ('Your two tries for today are used up.' if reason == 'VISITOR_LIMIT'
-                         else 'Today’s total of 20 tries has been reached.')
+                         else f'Today’s total of {GLOBAL_DAILY_LIMIT} tries has been reached.')
                 self.respond(429, {'error': error, 'code': reason,
                                    'quota': access_store().remaining(visitor)}, cookie=cookie)
                 return
@@ -398,6 +419,8 @@ class WebHandler(BaseHTTPRequestHandler):
                         cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                         start_new_session=True)
                     JOB_PROCESSES[job_id] = process
+                    if PUBLIC_MODE:
+                        JOB_RESERVATIONS[job_id] = visitor
             except OSError:
                 upload.unlink(missing_ok=True)
                 logs.unlink(missing_ok=True)

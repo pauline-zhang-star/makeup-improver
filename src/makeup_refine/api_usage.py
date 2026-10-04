@@ -111,6 +111,25 @@ class UsageLedger:
         self.notify()
 
 
+def no_provider_calls(directory):
+    """True only when the CLI's persisted ledger confirms no API request began.
+
+    The CLI creates the ledger before constructing any provider request, so an
+    absent ledger means it stopped during local input preparation. A malformed
+    ledger is uncertain and must not be used to refund a reservation.
+    """
+    import json
+    path = directory / 'api-usage.json'
+    if not path.exists():
+        return True
+    try:
+        usage = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return (isinstance(usage, dict) and usage.get('recordedCalls') == 0
+            and usage.get('calls') == [])
+
+
 def attach_usage(provider, directory, report, historical=False):
     """Persist each transition, including failed calls, independently of result status."""
     import json

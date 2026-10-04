@@ -4,7 +4,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from makeup_refine.api_usage import UsageLedger, attach_usage, estimate, safe_usage
+from makeup_refine.api_usage import UsageLedger, attach_usage, estimate, no_provider_calls, safe_usage
 from makeup_refine.providers import OpenAIProvider
 from makeup_refine.models import SpikeError
 from makeup_refine.cli import save_review
@@ -15,6 +15,17 @@ CHAT = {'prompt_tokens': 1000, 'completion_tokens': 200,
         'prompt_tokens_details': {'cached_tokens': 400}}
 IMAGE = {'input_tokens': 1500, 'input_tokens_details': {'text_tokens': 1000, 'image_tokens': 500},
          'output_tokens': 2000, 'total_tokens': 3500}
+
+
+def test_no_provider_calls_requires_an_intact_zero_call_ledger(tmp_path):
+    assert no_provider_calls(tmp_path) is True  # CLI stopped before provider setup.
+    usage = tmp_path / 'api-usage.json'
+    usage.write_text(json.dumps({'recordedCalls': 0, 'calls': []}))
+    assert no_provider_calls(tmp_path) is True
+    usage.write_text(json.dumps({'recordedCalls': 1, 'calls': [{'status': 'in_flight'}]}))
+    assert no_provider_calls(tmp_path) is False
+    usage.write_text('{broken')
+    assert no_provider_calls(tmp_path) is False
 
 
 def provider_with(handler):

@@ -206,5 +206,30 @@ def test_busy_public_worker_does_not_charge_or_save_another_photo(tmp_path, monk
     handler.do_POST()
     assert handler.status == 503
     assert json.loads(handler.wfile.getvalue())['code'] == 'SERVER_BUSY'
-    assert web_app.access_store().remaining('new-visitor')['dailyRemaining'] == 20
+    assert web_app.access_store().remaining('new-visitor')['dailyRemaining'] == 50
     assert not (tmp_path / 'uploads').exists()
+
+
+def test_finished_local_preflight_refunds_without_provider_call(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, 'PUBLIC_MODE', True)
+    monkeypatch.setattr(web_app, 'VISITOR_SECRET', 'test-secret')
+    monkeypatch.setattr(web_app, 'STATE_DB', tmp_path / 'state.sqlite3')
+    monkeypatch.setattr(web_app, '_ACCESS_STORE', None)
+    monkeypatch.setattr(web_app, 'RUNS', tmp_path / 'runs')
+    job_id = 'f' * 32
+    visitor = 'visitor'
+    store = web_app.access_store()
+    assert store.reserve(visitor, job_id) is None
+
+    class FinishedProcess:
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(web_app, 'JOB_PROCESSES', {job_id: FinishedProcess()})
+    monkeypatch.setattr(web_app, 'JOB_RESERVATIONS', {job_id: visitor})
+    assert store.remaining(visitor)['visitorRemaining'] == 1
+    web_app.settle_finished_jobs()
+    web_app.settle_finished_jobs()
+    assert store.remaining(visitor)['visitorRemaining'] == 2
+    assert store.remaining(visitor)['dailyRemaining'] == 50
+    assert web_app.JOB_RESERVATIONS == {}

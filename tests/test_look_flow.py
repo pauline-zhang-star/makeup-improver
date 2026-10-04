@@ -21,6 +21,23 @@ from makeup_refine.look_composite import preserve_complexion_texture
 from test_pipeline import Detector, image
 
 
+def test_cached_direct_masks_keep_exact_pixels(image):
+    from makeup_refine.look_mask import DirectMaskCache, direct_edit_mask
+    points = Detector().detect(image)[0]
+    selected = [
+        {'region': 'brows', 'technique_id': 'brow_01', 'intensity': .8},
+        {'region': 'eyeliner', 'technique_id': 'eyeliner_02', 'intensity': .7},
+        {'region': 'blush', 'technique_id': 'blush_01', 'intensity': .6},
+        {'region': 'lips', 'technique_id': 'lips_01', 'intensity': .7},
+    ]
+    cache = DirectMaskCache(image.size, points, MakeupStyle.KOREAN_SOFT)
+    for items in (selected, selected[:2], [selected[2]], [selected[3]]):
+        cached = cache.mask_for(items)
+        fresh = direct_edit_mask(image.size, points, MakeupStyle.KOREAN_SOFT, items)
+        assert np.array_equal(np.asarray(cached), np.asarray(fresh))
+        assert cache.mask_for(items) is cached
+
+
 @pytest.fixture(autouse=True)
 def stub_lip_solver_for_flow_tests(monkeypatch):
     """These tests use random pixels, so lip image-quality gates are tested elsewhere."""

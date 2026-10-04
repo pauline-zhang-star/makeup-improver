@@ -16,7 +16,7 @@ from .trial_trace import TrialTrace, trace_for_report
 from .photo_framing import frame_photo
 
 
-def save_review(directory, original, enhanced, report):
+def save_review(directory, original, enhanced, report, *, intermediate=False):
     # Fixed local names; never accept provider-supplied output paths.
     payload = {**report, 'apiTrace': trace_for_report(directory), 'originalImage': 'originalImage.png',
                'enhancedImage': 'enhancedImage.png' if enhanced is not None else None,
@@ -53,7 +53,8 @@ def save_review(directory, original, enhanced, report):
     temporary.replace(directory / 'result.json')
     # The stateless Vercel response uses public_job and inline JPEGs, never the
     # private offline HTML. Avoid repeatedly encoding full-size PNGs for it.
-    if os.environ.get('MAKEUP_SKIP_REVIEW_HTML') == '1':
+    if (os.environ.get('MAKEUP_SKIP_REVIEW_HTML') == '1' or
+            (intermediate and os.environ.get('MAKEUP_DEFER_REVIEW_HTML') == '1')):
         return
     comparison = enhanced
     if comparison is None:
@@ -187,7 +188,7 @@ def main():
                 report['inputCrop'] = input_crop
                 if (directory / 'uploadedImage.png').is_file():
                     report['uploadedImage'] = 'uploadedImage.png'
-            save_review(directory, original, None, report)
+            save_review(directory, original, None, report, intermediate=True)
             provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
             attach_usage(provider, directory, report)
             provider.trial_trace = TrialTrace(directory)
@@ -197,7 +198,7 @@ def main():
                 enhanced = image
                 enhanced.save(directory / 'enhancedImage.png')
                 report.update(status='enhanced_ready')
-                save_review(directory, original, enhanced, report)
+                save_review(directory, original, enhanced, report, intermediate=True)
 
             def save_plan(plan):
                 report['techniquePlan'] = plan.model_dump()
@@ -206,7 +207,7 @@ def main():
                     report['techniqueAnalysis'] = provider.last_technique_analysis
                 report['thresholdsEmpiricallyCalibrated'] = False
                 report['status'] = 'plan_ready'
-                save_review(directory, original, None, report)
+                save_review(directory, original, None, report, intermediate=True)
 
             def save_candidate(image):
                 # Keep rejected provider output for human diagnosis, never as an accepted result.
@@ -215,12 +216,12 @@ def main():
                 image.save(directory / 'candidateImage.png')
                 report['candidateImage'] = 'candidateImage.png'
                 report.pop('alignedCandidateImage', None)
-                save_review(directory, original, None, report)
+                save_review(directory, original, None, report, intermediate=True)
 
             def save_attempt(record):
                 report.setdefault('generationAttempts', []).append(record)
                 report['imageEditCalls'] = len(report['generationAttempts'])
-                save_review(directory, original, enhanced, report)
+                save_review(directory, original, enhanced, report, intermediate=True)
 
             def save_aligned(image):
                 number = len(report.get('generationAttempts', [])) + 1
@@ -232,7 +233,8 @@ def main():
                                              save_candidate, save_plan, args.max_edit_attempts,
                                              save_attempt, save_aligned).run(original, args.style)
             report.update(outcome)
-        save_review(directory, original, enhanced, report)
+        save_review(directory, original, enhanced, report,
+                    intermediate=os.environ.get('MAKEUP_DEFER_REVIEW_HTML') == '1')
         print(json.dumps({'status': report['status'], 'output': str(directory),
                           'apiCost': {k: report.get('apiUsage', {}).get(k) for k in
                                       ('totalEstimatedUSD', 'knownEstimatedUSD', 'complete')}}))
@@ -241,7 +243,8 @@ def main():
         failure = {'status': 'failed', 'errorCode': exc.code, 'message': exc.message, **exc.details}
         if directory is not None and original is not None and not args.retry_instructions:
             # Do not erase a usable image or successful prior session on retry failure.
-            save_review(directory, original, enhanced, {**report, **failure, 'steps': []})
+            save_review(directory, original, enhanced, {**report, **failure, 'steps': []},
+                        intermediate=os.environ.get('MAKEUP_DEFER_REVIEW_HTML') == '1')
         print(json.dumps(failure), file=sys.stderr)
         return 1
     except (OSError, ValueError, ImportError, RuntimeError) as exc:
@@ -253,7 +256,8 @@ def main():
         failure = {'status': 'failed', 'errorCode': 'CONFIGURATION_ERROR',
                    'message': 'Check dependencies, model names, local files and API key configuration.'}
         if directory is not None and original is not None and not args.retry_instructions:
-            save_review(directory, original, enhanced, {**report, **failure, 'steps': []})
+            save_review(directory, original, enhanced, {**report, **failure, 'steps': []},
+                        intermediate=os.environ.get('MAKEUP_DEFER_REVIEW_HTML') == '1')
         print(json.dumps(failure), file=sys.stderr)
         return 1
     finally:

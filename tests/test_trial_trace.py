@@ -70,6 +70,18 @@ def test_stateless_run_saves_result_without_unused_review_html(tmp_path, monkeyp
     assert not (tmp_path / 'review.html').exists()
 
 
+def test_local_web_defers_intermediate_report_but_keeps_final_slider(tmp_path, monkeypatch):
+    monkeypatch.setenv('MAKEUP_DEFER_REVIEW_HTML', '1')
+    original = Image.new('RGB', (64, 64), 'gray')
+    enhanced = Image.new('RGB', (64, 64), 'pink')
+    report = {'status': 'enhanced_ready', 'steps': []}
+    save_review(tmp_path, original, enhanced, report, intermediate=True)
+    assert (tmp_path / 'result.json').exists()
+    assert not (tmp_path / 'review.html').exists()
+    save_review(tmp_path, original, enhanced, report)
+    assert 'data-comparison' in (tmp_path / 'review.html').read_text()
+
+
 def test_trace_preserves_retries_and_transport_failure(tmp_path):
     def fail(request):
         raise httpx.ReadTimeout('do not persist headers', request=request)

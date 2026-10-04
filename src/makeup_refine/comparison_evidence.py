@@ -8,11 +8,11 @@ from .look_mask import direct_edit_mask
 from .models import SpikeError
 
 
-def build_comparison_evidence(original, enhanced, points, style, selected):
+def build_comparison_evidence(original, enhanced, points, style, selected, mask_for=None):
     if original.size != enhanced.size:
         raise SpikeError('QUALITY_CHECK_FAILED', 'Image dimensions changed.')
-    before = np.asarray(original.convert('RGB'), dtype=float)
-    after = np.asarray(enhanced.convert('RGB'), dtype=float)
+    before = np.asarray(original.convert('RGB'), dtype=np.float32)
+    after = np.asarray(enhanced.convert('RGB'), dtype=np.float32)
     signed = after - before
     delta = np.abs(signed).mean(axis=2)
     # Central differences give edge-change evidence, not an eyeliner classifier.
@@ -26,7 +26,8 @@ def build_comparison_evidence(original, enhanced, points, style, selected):
     records = []
     for item in selected:
         area = {'brows': 'eyebrows', 'foundation': 'complexion'}.get(item['region'], item['region'])
-        support = np.asarray(direct_edit_mask(original.size, points, style, [item])) > 0
+        support = np.asarray(mask_for([item]) if mask_for else
+                             direct_edit_mask(original.size, points, style, [item])) > 0
         parts = [support]
         if area in {'eyebrows', 'eyeliner', 'eyeshadow', 'lashes', 'blush'}:
             left, right = support.copy(), support.copy()

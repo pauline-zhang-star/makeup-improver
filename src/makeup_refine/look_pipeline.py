@@ -6,7 +6,7 @@ from .interfaces import LandmarkProvider, LookEditor, LookExplainer
 from .look_models import MakeupStyle, LookComparison
 from .look_annotations import annotation_anchors
 from .look_mask import (makeup_mask, lip_mask, complexion_mask, direct_edit_mask,
-                        lip_center_highlight_mask, outer_wing_mask)
+                        lip_center_highlight_mask, outer_wing_mask, DirectMaskCache)
 from .look_alignment import align_candidate, register_direct_candidate
 from .look_composite import composite_complexion_base, preserve_complexion_texture
 from .landmarks import validate_face, LIPS, INNER_LIPS
@@ -26,16 +26,14 @@ SELECTED_REGION_THRESHOLDS = VisibilityThresholds(
     pixel_delta=3.0, min_changed_fraction=.20)
 
 
-def selected_region_change_metrics(original, enhanced, points, style, selected):
+def selected_region_change_metrics(original, enhanced, points, style, selected, mask_for=None):
     """Measure whether each selected technique changed its own mask region."""
-    results = []
-    for item in selected:
-        mask = direct_edit_mask(original.size, points, style, [item])
-        measurement = region_metrics(original, enhanced, [mask],
-                                     thresholds=SELECTED_REGION_THRESHOLDS)[0]
-        results.append({'techniqueId': item['technique_id'],
-                        'region': item['region'], **measurement})
-    return results
+    masks = [(mask_for([item]) if mask_for else
+              direct_edit_mask(original.size, points, style, [item])) for item in selected]
+    measurements = region_metrics(original, enhanced, masks,
+                                  thresholds=SELECTED_REGION_THRESHOLDS)
+    return [{'techniqueId': item['technique_id'], 'region': item['region'], **measurement}
+            for item, measurement in zip(selected, measurements)]
 
 
 def summarize_observed_changes(steps, selected, allowed_supplementary_areas=()):
@@ -159,7 +157,8 @@ class LookPipeline:
                               **summarize_observed_changes([], []),
                               'imageEditCalls': 0, 'humanReviewRequired': True}
         complexion_enabled = any(item['region'] == 'foundation' for item in plan.selected)
-        mask = direct_edit_mask(original.size, points, style, plan.selected)
+        masks = DirectMaskCache(original.size, points, style)
+        mask = masks.mask_for(plan.selected)
         attempts, correction = [], None
         for attempt in range(1, self.max_edit_attempts + 1):
             arguments = {'correction': correction} if correction else {}
@@ -200,12 +199,12 @@ class LookPipeline:
                 image_scale = np.asarray(original.size)
                 eye_span = float(np.linalg.norm(
                     (np.asarray(points[263]) - np.asarray(points[33])) * image_scale))
-                eye_mask = (direct_edit_mask(original.size, points, style, eye_items)
+                eye_mask = (masks.mask_for(eye_items)
                             if eye_items else None)
                 if blush_items:
                     other_items = [item for item in plan.selected if item.get('region') != 'blush']
-                    blush_mask = direct_edit_mask(original.size, points, style, blush_items)
-                    other_mask = (direct_edit_mask(original.size, points, style, other_items)
+                    blush_mask = masks.mask_for(blush_items)
+                    other_mask = (masks.mask_for(other_items)
                                   if other_items else None)
                     enhanced, composite_report = edge_safe_composite(
                         original, aligned, mask, soft_mask=blush_mask, hard_mask=other_mask,
@@ -219,7 +218,7 @@ class LookPipeline:
                 foundation_items = [item for item in plan.selected
                                     if item.get('region') == 'foundation']
                 if foundation_items:
-                    foundation_mask = direct_edit_mask(original.size, points, style, foundation_items)
+                    foundation_mask = masks.mask_for(foundation_items)
                     enhanced, complexion_texture_report = preserve_complexion_texture(
                         original, enhanced, foundation_mask)
                 alignment['protectedRegionComposite'] = composite_report
@@ -227,7 +226,7 @@ class LookPipeline:
                 passed('compositing', composite_report)
                 active_check = 'region_measurement'
                 selected_changes = selected_region_change_metrics(
-                    original, enhanced, points, style, plan.selected)
+                    original, enhanced, points, style, plan.selected, masks.mask_for)
                 passed('region_measurement', selected_changes)
                 alignment['selectedTechniqueChangeMetrics'] = selected_changes
                 if self.on_aligned:
@@ -306,7 +305,8 @@ class LookPipeline:
                     'humanReviewRequired': True, **preservation}
         if self.on_enhanced:
             self.on_enhanced(enhanced)
-        evidence = build_comparison_evidence(original, enhanced, points, style, plan.selected)
+        evidence = build_comparison_evidence(original, enhanced, points, style, plan.selected,
+                                             mask_for=masks.mask_for)
         metadata['comparisonEvidence'] = evidence
         explanation = self.explain(original, enhanced, evidence=evidence)
         planned_areas = {('eyebrows' if item['region'] == 'brows' else

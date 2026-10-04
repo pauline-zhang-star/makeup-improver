@@ -384,6 +384,9 @@ class WebHandler(BaseHTTPRequestHandler):
         output = RUNS / job_id
         env = os.environ.copy()
         env['MPLCONFIGDIR'] = '/tmp/mpl'
+        # The live page uses result.json and the saved image files. Build the
+        # large self-contained offline report once, after the job finishes.
+        env['MAKEUP_DEFER_REVIEW_HTML'] = '1'
         logs = UPLOADS / (job_id + '.log')
         with _JOB_START_LOCK:
             if PUBLIC_MODE and any(process.poll() is None for process in JOB_PROCESSES.values()):

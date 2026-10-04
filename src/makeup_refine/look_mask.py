@@ -25,6 +25,20 @@ ADJACENT_TECHNIQUE_GROUPS = (
 )
 
 
+def _sparse_max_filter(mask, width):
+    """Apply Pillow's exact rank filter only where the sparse mask can grow."""
+    bounds = mask.getbbox()
+    if bounds is None:
+        return mask.copy()
+    radius = width // 2
+    box = (max(0, bounds[0] - radius), max(0, bounds[1] - radius),
+           min(mask.width, bounds[2] + radius), min(mask.height, bounds[3] + radius))
+    filtered = mask.crop(box).filter(ImageFilter.MaxFilter(width))
+    result = Image.new('L', mask.size, 0)
+    result.paste(filtered, box[:2])
+    return result
+
+
 def complexion_mask(size, points):
     """Inward-feathered facial skin, excluding openings and lip pigment."""
     w, h = size
@@ -62,7 +76,7 @@ def _cheek_centers(xy, eye_span, style):
         yield xy[index, 0] + inward * eye_span * shift, cheek_y
 
 
-def direct_edit_mask(size, points, style, selected):
+def direct_edit_mask(size, points, style, selected, *, base_mask=None, eye_protected=None):
     """Exactly the selected techniques' masks, without full-face compositing.
 
     Full-face complexion editing is intentionally not added here. Foundation
@@ -72,7 +86,31 @@ def direct_edit_mask(size, points, style, selected):
     This landmark approximation is not semantic skin segmentation. Glasses and
     hair crossing the face still need the paired-image preservation assessment.
     """
-    return technique_mask(size, points, style, selected)
+    return technique_mask(size, points, style, selected,
+                          base_mask=base_mask, eye_protected=eye_protected)
+
+
+class DirectMaskCache:
+    """Reuse the unchanged face support and technique masks within one photo run."""
+
+    def __init__(self, size, points, style):
+        self.size, self.points, self.style = size, points, style
+        self.base_mask = None
+        self.eye_protected = None
+        self.masks = {}
+
+    def mask_for(self, selected):
+        key = tuple((item['region'], item['technique_id'], item.get('intensity', 1.0))
+                    for item in selected)
+        if key not in self.masks:
+            if self.base_mask is None:
+                self.base_mask = makeup_mask(self.size, self.points, self.style)
+            if self.eye_protected is None:
+                self.eye_protected = _eye_protected_mask(self.size, self.points)
+            self.masks[key] = direct_edit_mask(
+                self.size, self.points, self.style, selected,
+                base_mask=self.base_mask, eye_protected=self.eye_protected)
+        return self.masks[key]
 
 
 def lip_mask(size, points, style=MakeupStyle.AUTO):
@@ -98,7 +136,7 @@ def lip_mask(size, points, style=MakeupStyle.AUTO):
     draw.polygon(outline, fill=255)
     base_width = max(3, int(eye_span * .025) // 2 * 2 + 1)
     width = base_width + (4 if expansion > 1 else 0)
-    lip = lip.filter(ImageFilter.MaxFilter(width))
+    lip = _sparse_max_filter(lip, width)
     draw = ImageDraw.Draw(lip)
     draw.polygon([tuple(xy[i]) for i in INNER_LIPS], fill=0)
     soft = lip.filter(ImageFilter.GaussianBlur(max(1, eye_span * .008)))
@@ -217,7 +255,22 @@ def makeup_mask(size, points, style=MakeupStyle.AUTO):
     return Image.fromarray(combined)
 
 
-def technique_mask(size, points, style, selected):
+def _eye_protected_mask(size, points):
+    xy = np.asarray(points, dtype=float) * size
+    eye_span = float(np.linalg.norm(xy[263] - xy[33]))
+    eye_protected = Image.new('L', size, 0)
+    draw = ImageDraw.Draw(eye_protected)
+    clearance = max(1, round(eye_span * .03))
+    for upper, lower in zip(UPPER_EYES, LOWER_EYES):
+        aperture = Image.new('L', size, 0)
+        ImageDraw.Draw(aperture).polygon(
+            [tuple(xy[i]) for i in upper] +
+            [tuple(xy[i]) for i in reversed(lower)], fill=255)
+        draw.bitmap((0, 0), _sparse_max_filter(aperture, 2 * clearance + 1), fill=255)
+    return eye_protected
+
+
+def technique_mask(size, points, style, selected, *, base_mask=None, eye_protected=None):
     """Restrict edits to selected techniques with bounded group transitions."""
     w, h = size
     xy = np.asarray(points, dtype=float) * (w, h)
@@ -225,19 +278,8 @@ def technique_mask(size, points, style, selected):
     ied = float(np.linalg.norm((xy[33] + xy[133]) / 2 - (xy[263] + xy[362]) / 2))
     raw_by_region = {}
     selected_regions = {item['region'] for item in selected}
-    eye_protected = Image.new('L', size, 0)
-    eye_protected_draw = ImageDraw.Draw(eye_protected)
-    # Keep model edits farther from the visible opening so pigment above the
-    # lash line cannot confuse the eye contour or make the eye read smaller.
-    # This matches the requested separation between liner and the eye itself.
-    aperture_clearance = max(1, round(eye_span * .03))
-    for upper, lower in zip(UPPER_EYES, LOWER_EYES):
-        aperture = Image.new('L', size, 0)
-        ImageDraw.Draw(aperture).polygon(
-            [tuple(xy[i]) for i in upper] +
-            [tuple(xy[i]) for i in reversed(lower)], fill=255)
-        protected = aperture.filter(ImageFilter.MaxFilter(2 * aperture_clearance + 1))
-        eye_protected_draw.bitmap((0, 0), protected, fill=255)
+    if eye_protected is None:
+        eye_protected = _eye_protected_mask(size, points)
     for item in selected:
         region = item['region']
         technique_id = item['technique_id']
@@ -248,7 +290,7 @@ def technique_mask(size, points, style, selected):
             for brow in BROWS:
                 coords = xy[list(brow)]
                 draw.polygon([tuple(point) for point in coords], fill=255)
-            shape = shape.filter(ImageFilter.MaxFilter(2 * margin + 1))
+            shape = _sparse_max_filter(shape, 2 * margin + 1)
             if technique_id == 'brow_05':
                 tail_draw = ImageDraw.Draw(shape)
                 face_center_x = xy[1, 0]
@@ -343,10 +385,10 @@ def technique_mask(size, points, style, selected):
             continue
         group_mask = np.maximum.reduce([raw_by_region[region] for region in present])
         transition = max(1, round(eye_span * (.018 if 'eyeliner' in group else .022)))
-        expanded = Image.fromarray(group_mask).filter(ImageFilter.MaxFilter(2 * transition + 1))
+        expanded = _sparse_max_filter(Image.fromarray(group_mask), 2 * transition + 1)
         allowed = np.maximum(allowed, np.asarray(expanded))
 
     # The transition margin must never open the eye aperture or its buffer.
     allowed[np.asarray(eye_protected) > 0] = 0
-    base = np.asarray(makeup_mask(size, points, style))
+    base = np.asarray(base_mask if base_mask is not None else makeup_mask(size, points, style))
     return Image.fromarray(np.minimum(base, allowed))

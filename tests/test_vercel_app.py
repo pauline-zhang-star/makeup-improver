@@ -16,6 +16,22 @@ def photo_bytes():
     return stream.getvalue()
 
 
+def test_matched_pair_keeps_slider_dimensions_after_independent_byte_limits(tmp_path):
+    before = tmp_path / 'before.png'
+    after = tmp_path / 'after.png'
+    Image.effect_noise((1536, 1152), 100).convert('RGB').save(before)
+    Image.new('RGB', (1536, 1152), '#ae8278').save(after)
+    before_url, after_url = vercel_app.compact_matched_pair(
+        before, after, original_budget=300_000)
+
+    def size(url):
+        with Image.open(BytesIO(base64.b64decode(url.split(',', 1)[1]))) as image:
+            return image.size
+
+    assert size(before_url) == size(after_url)
+    assert size(before_url)[0] < 1536
+
+
 class FakeGuard(SignedVisitors):
     def __init__(self, reason=None):
         super().__init__('test-secret')
@@ -65,6 +81,7 @@ def test_vercel_job_returns_image_only_in_response_and_deletes_working_files(tmp
     working = []
 
     def fake_run(command, **kwargs):
+        assert command[command.index('--max-working-edge') + 1] == '1536'
         output = Path(command[command.index('--output') + 1])
         working.append(output.parent)
         output.mkdir()
@@ -81,7 +98,7 @@ def test_vercel_job_returns_image_only_in_response_and_deletes_working_files(tmp
     status, payload, headers = request('do_POST', '/api/generate', body)
     job = json.loads(payload)
     assert status == 200
-    assert job['originalUrl'] == 'client:original'
+    assert job['originalUrl'].startswith('data:image/jpeg;base64,')
     assert job['afterUrl'].startswith('data:image/jpeg;base64,')
     assert job['reviewUrl'] is None and job['uploadedUrl'] is None
     assert not working[0].exists()
@@ -128,10 +145,7 @@ def test_vercel_phone_upload_uses_primary_photo(tmp_path, monkeypatch, image_for
     status, payload, _ = request('do_POST', '/api/generate', body)
     job = json.loads(payload)
     assert status == 200
-    if image_format == 'HEIF':
-        assert job['originalUrl'].startswith('data:image/jpeg;base64,')
-    else:
-        assert job['originalUrl'] == 'client:original'
+    assert job['originalUrl'].startswith('data:image/jpeg;base64,')
     assert job['afterUrl'].startswith('data:image/jpeg;base64,')
     assert guard.reservations == 1 and guard.releases == []
 
@@ -227,9 +241,10 @@ def test_timeout_reports_active_stage_without_refunding_a_provider_call(tmp_path
     status, payload, _ = request('do_POST', '/api/generate', body)
     assert status == 504
     assert json.loads(payload)['stage'] == 'generation'
+    assert json.loads(payload)['apiRequestActive'] is True
     assert json.loads(payload)['quotaRefunded'] is False
     assert guard.releases == []
-    assert ('generation_timeout', guard.events[-1][1], 'generation:2') == guard.events[-1]
+    assert ('generation_timeout', guard.events[-1][1], 'generation:2:api_active:?x?') == guard.events[-1]
 
 
 def test_timeout_returns_checked_image_when_only_comparison_is_pending(tmp_path, monkeypatch):
@@ -263,7 +278,7 @@ def test_timeout_returns_checked_image_when_only_comparison_is_pending(tmp_path,
     assert status == 200
     assert job['status'] == 'instructions_unavailable'
     assert job['afterUrl'].startswith('data:image/jpeg;base64,')
-    assert job['originalUrl'] == 'client:original'
+    assert job['originalUrl'].startswith('data:image/jpeg;base64,')
     assert job['timeoutStage'] == 'comparison'
     assert job['plannedGuides'] == [] and job['callouts'] == []
     assert guard.releases == []

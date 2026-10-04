@@ -49,6 +49,34 @@ def compact_jpeg(path, max_bytes=MAX_RESULT_IMAGE_BYTES):
     raise ValueError('The generated image is too large to display on this free service.')
 
 
+def compact_matched_pair(original_path, enhanced_path, original_budget=800_000,
+                         enhanced_budget=MAX_RESULT_IMAGE_BYTES):
+    """Encode a before/after pair at one shared size for an aligned slider."""
+    with Image.open(original_path) as before_source, Image.open(enhanced_path) as after_source:
+        before = before_source.convert('RGB')
+        after = after_source.convert('RGB')
+    if before.size != after.size:
+        raise ValueError('The accepted images do not have matching dimensions.')
+    for max_edge in (1800, 1600, 1400, 1200, 1000, 800):
+        if max(before.size) > max_edge:
+            before.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+            after.thumbnail(before.size, Image.Resampling.LANCZOS)
+        encoded = []
+        for image, budget in ((before, original_budget), (after, enhanced_budget)):
+            data = None
+            for quality in (88, 80, 72):
+                stream = BytesIO()
+                image.save(stream, format='JPEG', quality=quality, optimize=True)
+                if stream.tell() <= budget:
+                    data = stream.getvalue()
+                    break
+            encoded.append(data)
+        if all(encoded):
+            return tuple('data:image/jpeg;base64,' + base64.b64encode(data).decode()
+                         for data in encoded)
+    raise ValueError('The generated images are too large to display on this free service.')
+
+
 def display_image_file(directory):
     report = json.loads((directory / 'result.json').read_text(encoding='utf-8'))
     for name in (report.get('enhancedImage'), report.get('alignedCandidateImage'),
@@ -72,14 +100,26 @@ def timeout_metadata(directory):
     except (OSError, ValueError):
         pass
     calls = calls if isinstance(calls, list) else []
-    stage = next((call.get('stage') for call in reversed(calls)
-                  if isinstance(call, dict) and call.get('status') == 'in_flight'), None)
+    active_call = next((call for call in reversed(calls)
+                        if isinstance(call, dict) and call.get('status') == 'in_flight'), None)
+    stage = active_call.get('stage') if active_call else None
     if stage not in {'planning', 'generation', 'comparison'}:
+        generation_returned = any(isinstance(call, dict) and
+                                  call.get('stage') == 'generation' and
+                                  call.get('status') == 'response_received' for call in calls)
         stage = ('comparison' if result.get('status') == 'enhanced_ready'
-                 else 'generation' if result.get('candidateImage')
-                 else 'planning' if result.get('techniquePlan')
+                 else 'review' if generation_returned or result.get('candidateImage')
+                 else 'generation_preparation' if result.get('techniquePlan')
                  else 'preflight' if not calls else 'unknown')
+    working_size = (result.get('inputCrop') or {}).get('workingSize')
+    if not working_size and (directory / 'originalImage.png').is_file():
+        try:
+            with Image.open(directory / 'originalImage.png') as original:
+                working_size = list(original.size)
+        except OSError:
+            pass
     return {'stage': stage, 'providerCallsStarted': len(calls),
+            'apiRequestActive': active_call is not None, 'workingSize': working_size,
             'enhancedReady': (result.get('status') == 'enhanced_ready'
                               and (directory / 'enhancedImage.png').is_file())}
 
@@ -87,17 +127,22 @@ def timeout_metadata(directory):
 class VercelHandler(WebHandler):
     server_version = 'MakeupRefineVercel/1.0'
 
-    def serve_job(self, job_id, output, input_format, cookie, status_override=None):
+    def serve_job(self, job_id, output, cookie, status_override=None):
         job = public_job(job_id, output)
         if job['afterUrl']:
             image_file = display_image_file(output)
             if image_file is None:
                 raise ValueError('No displayed image exists.')
-            job['afterUrl'] = compact_jpeg(image_file)
-            if job['originalUrl'] and input_format == 'HEIF':
-                job['originalUrl'] = compact_jpeg(output / 'originalImage.png', 800_000)
+            original_file = output / 'originalImage.png'
+            if job['originalUrl'] and not job['diagnostic']:
+                job['originalUrl'], job['afterUrl'] = compact_matched_pair(
+                    original_file, image_file)
             else:
-                job['originalUrl'] = 'client:original' if job['originalUrl'] else None
+                # Rejected diagnostic candidates may be returned at an unrelated
+                # size. Keep both visible without presenting them as accepted.
+                job['afterUrl'] = compact_jpeg(image_file)
+                if job['originalUrl']:
+                    job['originalUrl'] = compact_jpeg(original_file, 800_000)
         job['uploadedUrl'] = None
         job['reviewUrl'] = None
         if status_override:
@@ -212,7 +257,8 @@ class VercelHandler(WebHandler):
             command = [sys.executable, '-m', 'makeup_refine.cli', str(upload),
                        '--output', str(output), '--style', style.value,
                        '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
-                       '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1']
+                       '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1',
+                       '--max-working-edge', '1536']
             try:
                 completed = subprocess.run(command, cwd=ROOT, env=env,
                                            stdin=subprocess.DEVNULL, capture_output=True,
@@ -226,12 +272,15 @@ class VercelHandler(WebHandler):
                 refunded = no_provider_calls(output)
                 if refunded:
                     guard().release(visitor, job_id)
-                detail = f"{diagnostics['stage']}:{diagnostics['providerCallsStarted']}"
+                size = diagnostics['workingSize'] or ['?', '?']
+                detail = (f"{diagnostics['stage']}:{diagnostics['providerCallsStarted']}:"
+                          f"{'api_active' if diagnostics['apiRequestActive'] else 'local'}:"
+                          f"{size[0]}x{size[1]}")
                 print('makeup_generation_timeout', detail, flush=True)
                 guard().event('generation_timeout', visitor, job_id=job_id, detail=detail)
                 if diagnostics['enhancedReady']:
                     try:
-                        self.serve_job(job_id, output, input_format, cookie, {
+                        self.serve_job(job_id, output, cookie, {
                             'status': 'instructions_unavailable',
                             'message': 'The enhanced image passed local checks, but the makeup-step comparison timed out.',
                             'timeoutStage': diagnostics['stage'],
@@ -245,6 +294,8 @@ class VercelHandler(WebHandler):
                                    'code': 'GENERATION_TIMEOUT',
                                    'stage': diagnostics['stage'],
                                    'providerCallsStarted': diagnostics['providerCallsStarted'],
+                                   'apiRequestActive': diagnostics['apiRequestActive'],
+                                   'workingSize': diagnostics['workingSize'],
                                    'quotaRefunded': refunded}, cookie=cookie)
                 return
 
@@ -263,7 +314,7 @@ class VercelHandler(WebHandler):
             try:
                 job = public_job(job_id, output)
                 guard().event('generation_finished', visitor, job_id=job_id, detail=job['status'])
-                self.serve_job(job_id, output, input_format, cookie)
+                self.serve_job(job_id, output, cookie)
             except (OSError, ValueError, json.JSONDecodeError):
                 guard().event('result_unavailable', visitor, job_id=job_id)
                 self.respond(502, {'error': 'The generated result could not be displayed.'}, cookie=cookie)

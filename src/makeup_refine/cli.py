@@ -67,6 +67,29 @@ def save_review(directory, original, enhanced, report):
                  look_result=payload)
 
 
+def cap_working_image(image, framing, source_size, max_edge):
+    """Bound the public edit canvas while keeping the displayed pair aligned."""
+    if max_edge is not None and not 512 <= max_edge <= 3840:
+        raise ValueError('The maximum working edge must be between 512 and 3840 pixels.')
+    if max_edge is None or max(image.size) <= max_edge:
+        return image, framing
+    scale = max_edge / max(image.size)
+    size = tuple(max(1, round(edge * scale)) for edge in image.size)
+    working = image.resize(size, Image.Resampling.LANCZOS)
+    working.info.update(image.info)
+    details = dict(framing) if framing else {
+        'sourceSize': list(source_size),
+        'cropBox': [0, 0, source_size[0], source_size[1]],
+        'reasons': [],
+    }
+    details['method'] = 'framing_and_working_size_v1'
+    details['workingSize'] = list(size)
+    details['reasons'] = [*details['reasons'], 'public_generation_size_limit']
+    details['sourcePreserved'] = False
+    details['resized'] = True
+    return working, details
+
+
 def main():
     parser = argparse.ArgumentParser(description='Selfie → optional style → technique plan → enhanced image → observed makeup steps')
     parser.add_argument('image', type=Path, nargs='?')
@@ -77,6 +100,8 @@ def main():
     parser.add_argument('--edit-model')
     parser.add_argument('--max-edit-attempts', type=int, choices=(1, 2), default=2,
                         help='At most one corrective retry from the original photo (default: 2 total calls)')
+    parser.add_argument('--max-working-edge', type=int, default=None,
+                        help='Optional public-service limit for the working image long edge')
     parser.add_argument('--retry-instructions', type=Path,
                         help='Compare the saved pair in this directory; never regenerate the image')
     args = parser.parse_args()
@@ -146,14 +171,18 @@ def main():
             from .landmarks import MediaPipeLandmarks
             detector = MediaPipeLandmarks(str(args.landmark_model))
             original, input_crop = frame_photo(source, detector)
-            if input_crop:
+            original, input_crop = cap_working_image(
+                original, input_crop, source.size, args.max_working_edge)
+            if input_crop and args.max_working_edge is None:
                 source.save(directory / 'uploadedImage.png')
             original.save(directory / 'originalImage.png')
             report = {'status': 'generating', 'steps': [], 'requestedStyle': args.style,
                       'visionModel': args.vision_model, 'editModel': args.edit_model,
                       'provider': 'openai'}
             if input_crop:
-                report.update(inputCrop=input_crop, uploadedImage='uploadedImage.png')
+                report['inputCrop'] = input_crop
+                if (directory / 'uploadedImage.png').is_file():
+                    report['uploadedImage'] = 'uploadedImage.png'
             save_review(directory, original, None, report)
             provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
             attach_usage(provider, directory, report)

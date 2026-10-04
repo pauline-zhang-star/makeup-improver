@@ -3,6 +3,7 @@ from PIL import Image
 
 from makeup_refine.models import SpikeError
 from makeup_refine.photo_framing import face_box, frame_photo, letterbox_box
+from makeup_refine.cli import cap_working_image
 
 
 def framed_photo():
@@ -61,3 +62,18 @@ def test_dark_portrait_background_is_not_mistaken_for_letterbox():
     yy, xx = np.ogrid[:1800, :1000]
     array[((xx - 500) / 250) ** 2 + ((yy - 900) / 430) ** 2 < 1] = (150, 110, 95)
     assert letterbox_box(Image.fromarray(array)) is None
+
+
+def test_public_working_size_cap_keeps_one_aligned_portrait_and_records_resize():
+    image = Image.new('RGB', (2316, 3088), '#a78674')
+    image.info['icc_profile'] = b'test-profile'
+    working, details = cap_working_image(image, None, image.size, 1536)
+    assert working.size == (1152, 1536)
+    assert working.info['icc_profile'] == b'test-profile'
+    assert details['sourceSize'] == [2316, 3088]
+    assert details['cropBox'] == [0, 0, 2316, 3088]
+    assert details['workingSize'] == [1152, 1536]
+    assert details['reasons'] == ['public_generation_size_limit']
+    assert details['resized'] is True and details['sourcePreserved'] is False
+    unchanged, no_details = cap_working_image(working, None, working.size, 1536)
+    assert unchanged is working and no_details is None

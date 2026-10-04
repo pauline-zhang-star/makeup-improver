@@ -17,6 +17,7 @@ from PIL import Image, UnidentifiedImageError
 from .api_usage import no_provider_calls
 from .look_models import MakeupStyle
 from .redis_guard import RedisGuard
+from .upload_format import UPLOAD_SUFFIXES, validate_upload
 from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job
 
 
@@ -134,12 +135,7 @@ class VercelHandler(WebHandler):
             raw = base64.b64decode(photo, validate=True)
             if not 0 < len(raw) <= MAX_IMAGE_BYTES:
                 raise ValueError('Photo exceeds the free service upload limit.')
-            with Image.open(BytesIO(raw)) as image:
-                if image.format not in ('JPEG', 'PNG', 'HEIF') or getattr(image, 'n_frames', 1) != 1:
-                    raise ValueError('Use one JPEG, PNG, or HEIC photo.')
-                if image.width * image.height > 20_000_000:
-                    raise ValueError('Photo dimensions are too large.')
-                image.verify()
+            input_format = validate_upload(raw)
         except (ValueError, KeyError, TypeError, binascii.Error, UnidentifiedImageError, OSError) as exc:
             try:
                 guard().event('upload_rejected', visitor, detail='invalid_photo_or_style')
@@ -163,9 +159,7 @@ class VercelHandler(WebHandler):
 
         with tempfile.TemporaryDirectory(prefix='makeup-', dir='/tmp') as temporary:
             directory = Path(temporary)
-            input_format = image.format
-            upload = directory / ('upload.jpg' if input_format == 'JPEG' else
-                                  'upload.heic' if input_format == 'HEIF' else 'upload.png')
+            upload = directory / ('upload' + UPLOAD_SUFFIXES[input_format])
             output = directory / 'result'
             upload.write_bytes(raw)
             os.chmod(upload, 0o600)

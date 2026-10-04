@@ -20,7 +20,7 @@ from urllib.parse import parse_qs
 from PIL import Image, UnidentifiedImageError
 
 from .api_usage import no_provider_calls
-from . import heif_support  # registers the Pillow HEIF decoder
+from .upload_format import UPLOAD_SUFFIXES, validate_upload
 from .look_annotations import planned_review_steps, short_arrow
 from .look_models import MakeupStyle
 from .public_guard import AccessStore
@@ -366,13 +366,7 @@ class WebHandler(BaseHTTPRequestHandler):
             raw = base64.b64decode(photo, validate=True)
             if not 0 < len(raw) <= MAX_IMAGE_BYTES:
                 raise ValueError('Photo exceeds 12 MB.')
-            from io import BytesIO
-            with Image.open(BytesIO(raw)) as image:
-                if image.format not in ('JPEG', 'PNG', 'HEIF') or getattr(image, 'n_frames', 1) != 1:
-                    raise ValueError('Use one JPEG, PNG, or HEIC photo.')
-                if image.width * image.height > 20_000_000:
-                    raise ValueError('Photo dimensions are too large.')
-                image.verify()
+            input_format = validate_upload(raw)
         except (ValueError, KeyError, TypeError, binascii.Error, UnidentifiedImageError, OSError) as exc:
             access_store().event('upload_rejected', visitor, detail='invalid_photo_or_style')
             self.respond(400, {'error': str(exc) or 'Invalid photo or style.'}, cookie=cookie)
@@ -382,7 +376,7 @@ class WebHandler(BaseHTTPRequestHandler):
         if not model.is_file():
             self.respond(503, {'error': 'Face landmark model is unavailable.'}, cookie=cookie)
             return
-        extension = {"JPEG": '.jpg', "PNG": '.png', "HEIF": '.heic'}[image.format]
+        extension = UPLOAD_SUFFIXES[input_format]
         upload = UPLOADS / (job_id + extension)
         output = RUNS / job_id
         env = os.environ.copy()

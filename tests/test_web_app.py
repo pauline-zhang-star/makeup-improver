@@ -117,6 +117,13 @@ def test_web_handlers_upload_and_static_routes_without_api_call(tmp_path, monkey
     heic_status, heic_payload = request('do_POST', '/api/jobs', heic_body)
     assert heic_status == 202
     assert (web_app.UPLOADS / f"{json.loads(heic_payload)['id']}.heic").is_file()
+    mpo = BytesIO()
+    Image.new('RGB', (48, 48), 'red').save(mpo, format='MPO', save_all=True,
+                                           append_images=[Image.new('RGB', (48, 48), 'blue')])
+    mpo_body = json.dumps({'style': 'Auto', 'image': base64.b64encode(mpo.getvalue()).decode()}).encode()
+    mpo_status, mpo_payload = request('do_POST', '/api/jobs', mpo_body)
+    assert mpo_status == 202
+    assert (web_app.UPLOADS / f"{json.loads(mpo_payload)['id']}.jpg").is_file()
     assert json.loads(request('do_GET', f'/api/jobs/{job_id}')[1])['status'] == 'starting'
     assert request('do_GET', f'/api/jobs/{job_id}/../../.env')[0] == 404
 

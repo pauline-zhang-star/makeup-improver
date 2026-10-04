@@ -3,6 +3,7 @@ import json
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from makeup_refine import vercel_app
@@ -90,7 +91,8 @@ def test_vercel_job_returns_image_only_in_response_and_deletes_working_files(tmp
     assert ('generation_finished', job['id'], 'completed') in guard.events
 
 
-def test_vercel_heic_upload_decodes_and_returns_jpeg_before_image(tmp_path, monkeypatch):
+@pytest.mark.parametrize('image_format, suffix', [('HEIF', '.heic'), ('MPO', '.jpg')])
+def test_vercel_phone_upload_uses_primary_photo(tmp_path, monkeypatch, image_format, suffix):
     guard = FakeGuard()
     monkeypatch.setattr(vercel_app, '_GUARD', guard)
     monkeypatch.setattr(vercel_app, 'ROOT', tmp_path)
@@ -98,14 +100,19 @@ def test_vercel_heic_upload_decodes_and_returns_jpeg_before_image(tmp_path, monk
     model.parent.mkdir()
     model.write_bytes(b'model')
     monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
-    heic = BytesIO()
-    Image.new('RGB', (64, 64), '#ae8278').save(heic, format='HEIF')
+    phone_photo = BytesIO()
+    primary = Image.new('RGB', (64, 64), '#ae8278')
+    if image_format == 'MPO':
+        primary.save(phone_photo, format='MPO', save_all=True,
+                     append_images=[Image.new('RGB', (64, 64), 'blue')])
+    else:
+        primary.save(phone_photo, format=image_format)
 
     def fake_run(command, **kwargs):
         upload = Path(command[command.index('-m') + 2])
-        assert upload.suffix == '.heic'
+        assert upload.suffix == suffix
         with Image.open(upload) as source:
-            assert source.format == 'HEIF'
+            assert source.format == image_format
         output = Path(command[command.index('--output') + 1])
         output.mkdir()
         (output / 'originalImage.png').write_bytes(photo_bytes())
@@ -117,11 +124,14 @@ def test_vercel_heic_upload_decodes_and_returns_jpeg_before_image(tmp_path, monk
         return type('Completed', (), {'returncode': 0})()
 
     monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
-    body = json.dumps({'style': 'Auto', 'image': base64.b64encode(heic.getvalue()).decode()}).encode()
+    body = json.dumps({'style': 'Auto', 'image': base64.b64encode(phone_photo.getvalue()).decode()}).encode()
     status, payload, _ = request('do_POST', '/api/generate', body)
     job = json.loads(payload)
     assert status == 200
-    assert job['originalUrl'].startswith('data:image/jpeg;base64,')
+    if image_format == 'HEIF':
+        assert job['originalUrl'].startswith('data:image/jpeg;base64,')
+    else:
+        assert job['originalUrl'] == 'client:original'
     assert job['afterUrl'].startswith('data:image/jpeg;base64,')
     assert guard.reservations == 1 and guard.releases == []
 

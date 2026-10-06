@@ -115,7 +115,7 @@ class LookPipeline:
             return {'status': 'rejected', 'steps': [], 'comparisonStatus': 'completed',
                     'preservationIssues': comparison.preservationIssues, 'assessments': assessments,
                     'comparisonEvidence': evidence, 'pendingChangeReviews': [],
-                    'message': 'The comparison detected changes beyond makeup. This result needs review.'}
+                    'message': 'The comparison detected forbidden changes or visible makeup artifacts. This result needs review.'}
         steps = [step.model_dump() for step in comparison.visible_steps()]
         return {'status': 'completed' if steps else 'completed_no_visible_changes',
                 'steps': steps, 'assessments': assessments,

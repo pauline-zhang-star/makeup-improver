@@ -989,3 +989,13 @@ def test_input_detail_rejection_stops_before_any_paid_call(image, monkeypatch):
     assert failure.value.details['retryAction'] == 'upload_clearer_photo'
     html = look_steps_html({'status': 'failed', 'message': failure.value.message})
     assert '请上传对焦清晰' in html
+
+
+@pytest.mark.parametrize('issue', ['glasses', 'added_objects', 'makeup_artifacts'])
+def test_added_accessories_and_makeup_artifacts_reject_result(image, issue):
+    provider = Provider(issues=[issue])
+    pipeline = LookPipeline(provider, provider, Detector())
+    _, result = pipeline.run(image)
+    assert result['status'] == 'rejected'
+    assert result['steps'] == []
+    assert issue in result['preservationIssues']

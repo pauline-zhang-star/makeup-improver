@@ -167,6 +167,35 @@ def composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
     return result
 
 
+def outer_envelope(support):
+    """Fill holes with the same four-connected corner semantics as PIL floodfill.
+
+    Consume horizontal runs with NumPy instead of visiting every background
+    pixel in Python. Background components disconnected from (0, 0) are kept.
+    """
+    remaining = ~np.asarray(support, dtype=bool)
+    if not remaining[0, 0]:
+        return np.ones_like(remaining)
+    height, width = remaining.shape
+    pending = [(0, 0)]
+    while pending:
+        x, y = pending.pop()
+        if not remaining[y, x]:
+            continue
+        row = remaining[y]
+        stops = np.flatnonzero(~row[:x])
+        left = int(stops[-1] + 1) if stops.size else 0
+        stops = np.flatnonzero(~row[x + 1:])
+        right = int(x + 1 + stops[0]) if stops.size else width
+        row[left:right] = False
+        for adjacent in (y - 1, y + 1):
+            if 0 <= adjacent < height:
+                segment = remaining[adjacent, left:right]
+                starts = np.flatnonzero(segment & ~np.r_[False, segment[:-1]])
+                pending.extend((left + int(start), adjacent) for start in starts)
+    return np.asarray(support, dtype=bool) | remaining
+
+
 def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
                         correction_strength: float = .65, soft_mask=None,
                         hard_mask=None, soft_feather_pixels: float = 12,
@@ -227,10 +256,7 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
         if np.any(outer_support):
             # Fill enclosed openings before blurring: taper the outside of an
             # eye edit without also erasing shadow next to the protected iris.
-            inverted = Image.fromarray(np.uint8(~outer_support) * 255).copy()
-            if not outer_support[0, 0]:
-                ImageDraw.floodfill(inverted, (0, 0), 0)
-            envelope = outer_support | (np.asarray(inverted) > 0)
+            envelope = outer_envelope(outer_support)
             blurred = np.asarray(Image.fromarray(np.uint8(envelope) * 255).filter(
                 ImageFilter.GaussianBlur(outer_feather_pixels)), dtype=np.float32) / 255.
             outer_alpha = np.clip(2 * blurred - 1, 0., 1.)

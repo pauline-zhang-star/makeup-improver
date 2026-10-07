@@ -3,6 +3,7 @@ import base64
 from io import BytesIO
 import json
 import time
+import os
 import httpx
 from PIL import Image
 from pydantic import ValidationError
@@ -37,6 +38,7 @@ class OpenAIProvider:
         self.vision_model, self.edit_model = vision_model, edit_model
         self.usage_ledger = UsageLedger()
         self.trial_trace = None
+        self.fast_ai = os.environ.get("MAKEUP_FAST_AI") == "1"
         # No transport-level retry: the pipeline owns the single edit retry.
         self.client = httpx.Client(base_url="https://api.openai.com/v1/",
                                   headers={"Authorization": f"Bearer {api_key}"}, timeout=90)
@@ -69,12 +71,16 @@ class OpenAIProvider:
         self.last_technique_analysis = None
         style = MakeupStyle(style or MakeupStyle.AUTO)
         prompt = planning_prompt(style)
+        response_format = planning_response_format()
+        if self.fast_ai:
+            from .fast_ai import planning_contract
+            prompt, response_format = planning_contract(style)
         phase = 'request'
         response = None
         choice = {}
         try:
             response = self._post('planning', 'chat/completions', json={
-                'model': self.vision_model, 'response_format': planning_response_format(),
+                'model': self.vision_model, 'response_format': response_format,
                 'messages': [{'role': 'system', 'content': prompt},
                              {'role': 'user', 'content': [{'type': 'text', 'text': 'Design a cohesive look from this original selfie and its existing makeup.'},
                                                       {'type': 'image_url', 'image_url': {
@@ -87,7 +93,11 @@ class OpenAIProvider:
             if not isinstance(content, str) or not content.strip():
                 raise ValueError('Planning response has no JSON content.')
             phase = 'model_schema'
-            design = LookDesign.model_validate_json(content)
+            if self.fast_ai:
+                from .fast_ai import planning_decode
+                design = planning_decode(content)
+            else:
+                design = LookDesign.model_validate_json(content)
             self.last_technique_analysis = {'analysis_schema': 'model_visual_reasoning_v1',
                                             **design.model_dump()}
             phase = 'local_validation'
@@ -176,7 +186,13 @@ class OpenAIProvider:
             content.append({'type': 'text', 'text':
                 'LOCAL PIXEL EVIDENCE (diagnostic only, not proof of makeup): ' + json.dumps(evidence)})
             seen = set()
-            for region in evidence['regions']:
+            if self.fast_ai:
+                from .fast_ai import detail_boards
+                for board in detail_boards(original, enhanced, evidence):
+                    content.extend([{'type': 'text', 'text': 'Matched detail board: ORIGINAL left, ENHANCED right.'},
+                                    {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' +
+                                     base64.b64encode(png(board)).decode(), 'detail': 'high'}}])
+            for region in ([] if self.fast_ai else evidence['regions']):
                 for box in region['cropBoxes']:
                     key = tuple(box)
                     if key in seen:
@@ -193,13 +209,21 @@ class OpenAIProvider:
                                         {'type': 'image_url', 'image_url': {
                                             'url': 'data:image/png;base64,' + base64.b64encode(png(crop)).decode(),
                                             'detail': 'high'}}])
+        prompt, response_format = comparison_prompt(), {"type": "json_object"}
+        if self.fast_ai:
+            from .fast_ai import comparison_contract
+            prompt, response_format = comparison_contract()
         try:
             response = self._post("comparison", "chat/completions", json={
-                "model": self.vision_model, "response_format": {"type": "json_object"},
-                "messages": [{"role": "system", "content": comparison_prompt()},
+                "model": self.vision_model, "response_format": response_format,
+                "messages": [{"role": "system", "content": prompt},
                              {"role": "user", "content": content}]})
             response.raise_for_status()
-            return LookComparison.model_validate_json(response.json()["choices"][0]["message"]["content"])
+            content = response.json()["choices"][0]["message"]["content"]
+            if self.fast_ai:
+                from .fast_ai import comparison_decode
+                return comparison_decode(content)
+            return LookComparison.model_validate_json(content)
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
             raise SpikeError("EXPLANATION_FAILED", "The image is ready, but its makeup steps could not be verified.") from exc
 

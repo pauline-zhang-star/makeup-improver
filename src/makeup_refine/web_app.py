@@ -389,6 +389,7 @@ class WebHandler(BaseHTTPRequestHandler):
         upload = UPLOADS / (job_id + extension)
         output = RUNS / job_id
         env = os.environ.copy()
+        env.setdefault('MAKEUP_FAST_AI', '1')
         env['MPLCONFIGDIR'] = '/tmp/mpl'
         # The live page uses result.json and the saved image files. Build the
         # large self-contained offline report once, after the job finishes.
@@ -460,6 +461,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 if report.get('status') not in ('preview_ready', 'instructions_unavailable', 'guidance_generating'):
                     raise ValueError('This result cannot provide instructions.')
                 env = os.environ.copy()
+                env.setdefault('MAKEUP_FAST_AI', '1')
                 env['MAKEUP_DEFER_REVIEW_HTML'] = '1'
                 env['MPLCONFIGDIR'] = '/tmp/mpl'
                 logs = UPLOADS / (job_id + '.log')

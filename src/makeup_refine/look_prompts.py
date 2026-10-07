@@ -201,12 +201,12 @@ def enhancement_prompt(style, plan=None):
     )
 
 
-def comparison_prompt():
+def comparison_prompt(*, include_schema=True):
     return (
         'Compare the two supplied photographs: ORIGINAL first, ENHANCED second. '
         'The enhanced image is the source of truth. Explain only visible makeup differences '
         'between these exact images; do not invent an intended style, a plan or additional improvements. '
-        'Return JSON matching this schema: ' + json.dumps(LookComparison.model_json_schema()) + '. '
+        + (('Return JSON matching this schema: ' + json.dumps(LookComparison.model_json_schema()) + '. ') if include_schema else 'Return JSON using the supplied response schema. ') +
         'Return exactly eight assessments, one each for eyebrows, eyeliner, lashes, eyeshadow, '
         'nose_contour, blush, lips and complexion. Never silently omit an area. For each, explicitly classify changed, unchanged or '
         'uncertain and give before/after evidence with honest confidence. For lips specifically compare '

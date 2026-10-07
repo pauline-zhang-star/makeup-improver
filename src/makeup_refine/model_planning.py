@@ -327,7 +327,7 @@ def planning_response_format(catalog=None):
                                                 'strict': True, 'schema': schema}}
 
 
-def planning_prompt(style, catalog=None):
+def planning_prompt(style, catalog=None, *, include_schema=True):
     # Imported here to avoid a prompt/validator import cycle.
     from .look_prompts import STYLE_BRIEFS, STYLE_RENDERING_RULES, LOOK_HARMONY_PRINCIPLES
     style = MakeupStyle(style or MakeupStyle.AUTO)
@@ -341,7 +341,7 @@ def planning_prompt(style, catalog=None):
         'Design one cohesive, reproducible makeup look from the ORIGINAL selfie. '
         'Inspect existing makeup and preserve what already suits the final look. '
         + LOOK_HARMONY_PRINCIPLES +
-        'Return JSON matching this schema: ' + json.dumps(LookDesign.model_json_schema()) + '. '
+        (('Return JSON matching this schema: ' + json.dumps(LookDesign.model_json_schema()) + '. ') if include_schema else 'Return JSON using the supplied response schema. ') +
         'Every proposal MUST include its executable rendering parameters, not just descriptive text. '
         'For placement supply a numeric intensity and null color_delta; for color supply the full numeric '
         'OKLCH color_delta object and null intensity. Never leave both parameters null or absent. '

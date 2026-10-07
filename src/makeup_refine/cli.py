@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import shutil
 from PIL import Image
 from .config import get_api_key
 from .imaging import load_image, to_srgb
@@ -14,6 +15,7 @@ from .report import write_report
 from .api_usage import attach_usage
 from .trial_trace import TrialTrace, trace_for_report
 from .photo_framing import frame_photo
+from .landmark_cache import CachedLandmarks
 
 
 def save_review(directory, original, enhanced, report, *, intermediate=False):
@@ -70,6 +72,12 @@ def save_review(directory, original, enhanced, report, *, intermediate=False):
                 comparison = None
     write_report(directory / 'review.html', original, masks={}, result=comparison,
                  look_result=payload)
+
+
+def save_working_png(image, path):
+    # Public worker PNGs are temporary: use lossless fast encoding, retaining pixels.
+    options = {'compress_level': 1} if os.environ.get('MAKEUP_SKIP_REVIEW_HTML') == '1' else {}
+    image.save(path, format='PNG', **options)
 
 
 def cap_working_image(image, framing, source_size, max_edge):
@@ -139,7 +147,7 @@ def main():
             if not evidence and args.landmark_model:
                 from .landmarks import MediaPipeLandmarks, validate_face
                 from .comparison_evidence import build_comparison_evidence
-                detector = MediaPipeLandmarks(str(args.landmark_model))
+                detector = CachedLandmarks(MediaPipeLandmarks(str(args.landmark_model)))
                 points = validate_face(detector.detect(original))
                 evidence = build_comparison_evidence(original, enhanced, points,
                     report.get('requestedStyle', 'Auto'), report.get('techniquePlan', {}).get('selected', []))
@@ -174,13 +182,13 @@ def main():
             args.output.mkdir(parents=True, mode=0o700)
             directory = args.output
             from .landmarks import MediaPipeLandmarks
-            detector = MediaPipeLandmarks(str(args.landmark_model))
+            detector = CachedLandmarks(MediaPipeLandmarks(str(args.landmark_model)))
             original, input_crop = frame_photo(source, detector)
             original, input_crop = cap_working_image(
                 original, input_crop, source.size, args.max_working_edge)
             if input_crop and args.max_working_edge is None:
-                source.save(directory / 'uploadedImage.png')
-            original.save(directory / 'originalImage.png')
+                save_working_png(source, directory / 'uploadedImage.png')
+            save_working_png(original, directory / 'originalImage.png')
             report = {'status': 'generating', 'steps': [], 'requestedStyle': args.style,
                       'visionModel': args.vision_model, 'editModel': args.edit_model,
                       'provider': 'openai'}
@@ -196,7 +204,7 @@ def main():
             def save_enhanced(image):
                 nonlocal enhanced
                 enhanced = image
-                enhanced.save(directory / 'enhancedImage.png')
+                save_working_png(enhanced, directory / 'enhancedImage.png')
                 report.update(status='enhanced_ready')
                 save_review(directory, original, enhanced, report, intermediate=True)
 
@@ -212,8 +220,8 @@ def main():
             def save_candidate(image):
                 # Keep rejected provider output for human diagnosis, never as an accepted result.
                 number = len(report.get('generationAttempts', [])) + 1
-                image.save(directory / f'candidate-{number}.png')
-                image.save(directory / 'candidateImage.png')
+                save_working_png(image, directory / f'candidate-{number}.png')
+                shutil.copyfile(directory / f'candidate-{number}.png', directory / 'candidateImage.png')
                 report['candidateImage'] = 'candidateImage.png'
                 report.pop('alignedCandidateImage', None)
                 save_review(directory, original, None, report, intermediate=True)
@@ -226,7 +234,7 @@ def main():
             def save_aligned(image):
                 number = len(report.get('generationAttempts', [])) + 1
                 filename = f'aligned-candidate-{number}.png'
-                image.save(directory / filename)
+                save_working_png(image, directory / filename)
                 report['alignedCandidateImage'] = filename
 
             enhanced, outcome = LookPipeline(provider, provider, detector, save_enhanced,

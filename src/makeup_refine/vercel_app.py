@@ -150,6 +150,8 @@ class VercelHandler(WebHandler):
             job.update(status_override)
         if started_at is not None:
             job['serverDurationSeconds'] = round(time.perf_counter() - started_at, 1)
+            api_seconds = sum(job.get('apiTiming', {}).values()) / 1000
+            job['nonAPIDurationSeconds'] = round(max(0., job['serverDurationSeconds'] - api_seconds), 1)
         self.respond(200, job, cookie=cookie)
 
     def visitor(self):

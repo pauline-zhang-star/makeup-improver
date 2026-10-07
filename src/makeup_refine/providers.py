@@ -28,7 +28,7 @@ TECHNIQUES = {
 
 def png(image):
     output = BytesIO()
-    image.save(output, format="PNG")
+    image.save(output, format="PNG", compress_level=3)
     return output.getvalue()
 
 
@@ -178,17 +178,18 @@ class OpenAIProvider:
             seen = set()
             for region in evidence['regions']:
                 for box in region['cropBoxes']:
-                    key = (region['area'], tuple(box))
+                    key = tuple(box)
                     if key in seen:
                         continue
                     seen.add(key)
+                    areas = sorted({r['area'] for r in evidence['regions'] if box in r['cropBoxes']})
                     for label, source in (('ORIGINAL', original), ('ENHANCED', enhanced)):
                         crop = source.crop(tuple(box))
                         # Identical crop coordinates and scale preserve spatial comparison.
                         scale = min(3., 512 / max(crop.size))
                         crop = crop.resize((max(1, round(crop.width * scale)),
                                             max(1, round(crop.height * scale))), Image.Resampling.LANCZOS)
-                        content.extend([{'type': 'text', 'text': f"{region['area']} {box} {label} detail"},
+                        content.extend([{'type': 'text', 'text': f"{', '.join(areas)} {box} {label} detail"},
                                         {'type': 'image_url', 'image_url': {
                                             'url': 'data:image/png;base64,' + base64.b64encode(png(crop)).decode(),
                                             'detail': 'high'}}])

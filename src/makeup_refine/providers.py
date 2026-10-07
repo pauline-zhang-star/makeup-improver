@@ -9,7 +9,7 @@ from PIL import Image
 from pydantic import ValidationError
 from .models import ALLOWED, Plan, SpikeError
 from .api_usage import UsageLedger
-from .imaging import to_srgb, prepare_edit_canvas
+from .imaging import to_srgb, prepare_edit_canvas, edit_region_box
 from .art_direction import PLANNING_DIRECTION, RENDERING_DIRECTION
 from .look_models import MakeupStyle, LookComparison
 from .look_prompts import enhancement_prompt, comparison_prompt
@@ -39,6 +39,16 @@ class OpenAIProvider:
         self.usage_ledger = UsageLedger()
         self.trial_trace = None
         self.fast_ai = os.environ.get("MAKEUP_FAST_AI") == "1"
+        self.edit_quality = os.environ.get("MAKEUP_EDIT_QUALITY", "low").lower()
+        if self.edit_quality not in ("low", "medium", "high"):
+            raise SpikeError("CONFIGURATION_ERROR", "Invalid image generation quality.")
+        # Preserve PNG by default until a paired generation trial validates JPEG.
+        self.edit_canvas_mode = os.environ.get("MAKEUP_EDIT_CANVAS_MODE", "full").lower()
+        if self.edit_canvas_mode not in ("full", "region"):
+            raise SpikeError("CONFIGURATION_ERROR", "Invalid image canvas mode.")
+        self.edit_output_format = os.environ.get("MAKEUP_EDIT_OUTPUT_FORMAT", "png").lower()
+        if self.edit_output_format not in ("png", "jpeg", "webp"):
+            raise SpikeError("CONFIGURATION_ERROR", "Invalid image output format.")
         # No transport-level retry: the pipeline owns the single edit retry.
         self.client = httpx.Client(base_url="https://api.openai.com/v1/",
                                   headers={"Authorization": f"Bearer {api_key}"}, timeout=90)
@@ -46,6 +56,12 @@ class OpenAIProvider:
     def _post(self, stage, endpoint, **kwargs):
         model = (kwargs.get('json') or kwargs.get('data'))['model']
         record = self.usage_ledger.begin(stage, endpoint, model)
+        if endpoint == 'images/edits':
+            data = kwargs.get('data') or {}
+            record['imageSettings'] = {key: data[key] for key in
+                ('size', 'quality', 'output_format', 'output_compression') if key in data}
+            record['inputImageBytes'] = sum(len(item[1]) for item in
+                (kwargs.get('files') or {}).values() if isinstance(item[1], bytes))
         if self.trial_trace:
             self.trial_trace.begin(record, kwargs)
         started = time.perf_counter()
@@ -57,6 +73,8 @@ class OpenAIProvider:
                 self.trial_trace.finish(record)
             raise
         # Record before parsing/validation: a rejected result still consumed tokens.
+        if endpoint == 'images/edits':
+            record['responseBytes'] = len(response.content)
         self.usage_ledger.finish(record, response,
                                  duration_ms=(time.perf_counter() - started) * 1000)
         if self.trial_trace:
@@ -131,8 +149,13 @@ class OpenAIProvider:
         style = MakeupStyle(style or MakeupStyle.AUTO)
         if mask is None or mask.mode != 'L' or mask.size != original.size:
             raise SpikeError('QUALITY_CHECK_FAILED', 'A valid makeup mask is required.')
+        region_box = (0, 0, original.width, original.height)
         if self.edit_model.startswith('gpt-image-2'):
-            canvas, canvas_mask, crop = prepare_edit_canvas(original, mask)
+            if self.edit_canvas_mode == 'region':
+                region_box = edit_region_box(original, mask)
+            source = original.crop(region_box) if region_box != (0, 0, original.width, original.height) else original
+            source_mask = mask.crop(region_box) if source is not original else mask
+            canvas, canvas_mask, crop = prepare_edit_canvas(source, source_mask)
         else:
             canvas, canvas_mask, crop = original, mask, (0, 0, original.width, original.height)
         output_size = canvas.size
@@ -156,10 +179,14 @@ class OpenAIProvider:
                        'never blur or erase skin texture. Preserve natural skin texture and all regions outside the selected '
                        'techniques and permitted facial base makeup. '
                        'Return finished makeup; no later fading is applied.')
+        data = {"model": self.edit_model, "prompt": prompt,
+                "n": "1", "size": size, "quality": self.edit_quality}
+        if self.edit_model.startswith("gpt-image"):
+            data["output_format"] = self.edit_output_format
+            if self.edit_output_format in ("jpeg", "webp"):
+                data["output_compression"] = "100"
         try:
-            response = self._post("generation", "images/edits", data={
-                "model": self.edit_model, "prompt": prompt,
-                "n": "1", "size": size, "quality": "medium"},
+            response = self._post("generation", "images/edits", data=data,
                 files={"image": ("selfie.png", png(canvas), "image/png"),
                        "mask": ("mask.png", png(provider_mask), "image/png")})
             response.raise_for_status()
@@ -168,8 +195,13 @@ class OpenAIProvider:
                 if enhanced.size != output_size:
                     raise SpikeError('QUALITY_CHECK_FAILED', 'The provider changed the requested canvas dimensions.')
                 converted = to_srgb(enhanced).crop(crop)
-                if converted.size != original.size:
-                    converted = converted.resize(original.size, Image.Resampling.LANCZOS)
+                region_size = (region_box[2] - region_box[0], region_box[3] - region_box[1])
+                if converted.size != region_size:
+                    converted = converted.resize(region_size, Image.Resampling.LANCZOS)
+                if region_box != (0, 0, original.width, original.height):
+                    restored = original.copy()
+                    restored.paste(converted, region_box[:2])
+                    converted = restored
                 return converted
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, OSError) as exc:
             raise SpikeError("IMAGE_EDIT_FAILED", "Could not generate the enhanced photograph.") from exc
@@ -283,7 +315,7 @@ class OpenAIProvider:
                     if self.edit_model.startswith("gpt-image-2") else "auto")
             response = self._post("generation", "images/edits", data={
                 "model": self.edit_model, "prompt": prompt, "n": "1", "size": size,
-                "quality": "medium"},
+                "quality": self.edit_quality},
                 files={"image": ("selfie.png", png(image), "image/png"),
                        "mask": ("mask.png", png(provider_mask), "image/png")})
             response.raise_for_status()

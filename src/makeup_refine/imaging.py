@@ -83,6 +83,31 @@ def prepare_edit_canvas(image, mask):
     return canvas, canvas_mask, (left, top, left+sw, top+sh)
 
 
+def edit_region_box(image, mask):
+    """Native-resolution context around every editable pixel, never a face resize.
+
+    Prefer a square, above the model minimum area. Only crop when its area is
+    at least 20% smaller; wide masks and small photos retain the full canvas.
+    """
+    if mask.size != image.size or mask.mode != 'L':
+        raise SpikeError('QUALITY_CHECK_FAILED', 'A matching edit mask is required.')
+    bounds = mask.getbbox()
+    if bounds is None:
+        raise SpikeError('QUALITY_CHECK_FAILED', 'The edit mask is empty.')
+    left, top, right, bottom = bounds
+    margin = max(48, round(max(right - left, bottom - top) * .18))
+    width = min(image.width, max(816, right - left + 2 * margin))
+    height = min(image.height, max(816, bottom - top + 2 * margin))
+    # A square is useful for generation, but never manufacture context pixels.
+    side = max(width, height)
+    width, height = min(image.width, side), min(image.height, side)
+    if width * height < 655360 or width * height >= image.width * image.height * .8:
+        return (0, 0, image.width, image.height)
+    x = max(0, min(image.width - width, (left + right - width) // 2))
+    y = max(0, min(image.height - height, (top + bottom - height) // 2))
+    return (x, y, x + width, y + height)
+
+
 def to_srgb(image: Image.Image) -> Image.Image:
     """Preserve displayed color before stripping private metadata.
 

@@ -271,6 +271,7 @@ class VercelHandler(WebHandler):
             os.chmod(upload, 0o600)
             env = os.environ.copy()
             env.setdefault('MAKEUP_FAST_AI', '1')
+            env['MAKEUP_EDIT_QUALITY'] = 'low'
             env['MPLCONFIGDIR'] = '/tmp/mpl'
             env['MAKEUP_DIAGNOSTICS'] = '1'
             env['MAKEUP_SKIP_REVIEW_HTML'] = '1'
@@ -388,6 +389,7 @@ class VercelHandler(WebHandler):
                 (output / 'result.json').write_text(json.dumps(report))
                 env = os.environ.copy()
                 env.setdefault('MAKEUP_FAST_AI', '1')
+                env['MAKEUP_EDIT_QUALITY'] = 'low'
                 env['MAKEUP_SKIP_REVIEW_HTML'] = '1'
                 command = [sys.executable, '-m', 'makeup_refine.cli', '--retry-instructions',
                            str(output), '--vision-model', 'gpt-4.1-mini']

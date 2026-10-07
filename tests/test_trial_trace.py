@@ -27,7 +27,7 @@ def test_actual_payload_and_invalid_size_image_survive(tmp_path):
         provider.close()
     calls = trace_for_report(tmp_path)
     request = calls[0]['requestPayload']
-    assert request['data']['quality'] == 'medium'
+    assert request['data']['quality'] == 'low'
     assert request['data']['prompt']
     sent_image = request['files']['image'][1]
     assert (tmp_path / sent_image['file']).read_bytes() == png(original)

@@ -16,3 +16,13 @@ def test_ticket_binds_owner_exact_pair_and_expiry():
             verify(b'secret', owner, ticket, before, after, now=instant)
     with pytest.raises(ValueError):
         verify(b'wrong', 'visitor', ticket, 'original', 'enhanced', now=200)
+
+
+def test_downscaled_display_pair_preserves_crop_alignment_without_mutating_source():
+    from makeup_refine.guidance_ticket import evidence_for_display
+    evidence = {'imageSize': [1200, 1600], 'regions': [{'cropBoxes': [[120, 160, 600, 800]],
+                                                    'meanPixelDelta': 4.2}]}
+    scaled = evidence_for_display(evidence, (600, 800))
+    assert scaled['regions'][0]['cropBoxes'] == [[60, 80, 300, 400]]
+    assert scaled['pixelMetricsSourceSize'] == [1200, 1600]
+    assert evidence['regions'][0]['cropBoxes'] == [[120, 160, 600, 800]]

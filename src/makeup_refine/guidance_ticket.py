@@ -4,8 +4,26 @@ import hashlib
 import hmac
 import json
 import time
+from copy import deepcopy
 
 TTL = 3600
+
+
+def evidence_for_display(evidence, size):
+    """Keep detail crops aligned if the matched display pair was downscaled."""
+    if not evidence or tuple(evidence.get('imageSize', size)) == tuple(size):
+        return evidence
+    result = deepcopy(evidence)
+    old_width, old_height = result['imageSize']
+    width, height = size
+    for region in result.get('regions', []):
+        region['cropBoxes'] = [[round(x0 * width / old_width), round(y0 * height / old_height),
+                                round(x1 * width / old_width), round(y1 * height / old_height)]
+                               for x0, y0, x1, y1 in region.get('cropBoxes', [])]
+    result['pixelMetricsSourceSize'] = result['imageSize']
+    result['imageSize'] = list(size)
+    result['alignment'] = 'Matched display pair; crops scaled together. Pixel metrics were measured on the original working pair before JPEG encoding.'
+    return result
 
 
 def issue(secret, visitor, job_id, report, before, after, now=None):

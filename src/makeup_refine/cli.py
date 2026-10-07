@@ -195,7 +195,7 @@ def main():
             save_working_png(original, directory / 'originalImage.png')
             report = {'status': 'generating', 'steps': [], 'requestedStyle': args.style,
                       'visionModel': args.vision_model, 'editModel': args.edit_model,
-                      'provider': 'openai'}
+                      'provider': 'openai', 'guidanceDeferred': args.defer_guidance}
             if input_crop:
                 report['inputCrop'] = input_crop
                 if (directory / 'uploadedImage.png').is_file():

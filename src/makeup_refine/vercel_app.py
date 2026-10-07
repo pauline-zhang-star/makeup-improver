@@ -18,7 +18,7 @@ from PIL import Image, UnidentifiedImageError
 from .api_usage import no_provider_calls
 from .look_models import MakeupStyle
 from .redis_guard import RedisGuard
-from .guidance_ticket import issue, verify, TTL
+from .guidance_ticket import issue, verify, evidence_for_display, TTL
 from .upload_format import UPLOAD_SUFFIXES, validate_upload
 from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job
 
@@ -379,7 +379,9 @@ class VercelHandler(WebHandler):
                         if max(image.size) > 1800:
                             raise ValueError('Invalid preview dimensions.')
                         image.convert('RGB').save(output / name, compress_level=1)
+                        display_size = image.size
                 report = ticket['report']
+                report['comparisonEvidence'] = evidence_for_display(report.get('comparisonEvidence'), display_size)
                 report.update(status='preview_ready', originalImage='originalImage.png',
                               enhancedImage='enhancedImage.png', steps=[])
                 (output / 'result.json').write_text(json.dumps(report))

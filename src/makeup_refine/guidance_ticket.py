@@ -28,7 +28,7 @@ def evidence_for_display(evidence, size):
 
 def issue(secret, visitor, job_id, report, before, after, now=None):
     # No file paths, raw prompts, credentials or photo bytes in the ticket.
-    fields = ('flow', 'requestedStyle', 'editModel', 'visionModel', 'generationMode',
+    fields = ('flow', 'requestedStyle', 'editModel', 'visionModel', 'reviewModel', 'generationMode',
               'techniquePlan', 'comparisonEvidence', 'annotationAnchors',
               'allowedSupplementaryAreas', 'mouthWidthReview', 'apiUsage', 'guidanceDeferred')
     payload = {'id': job_id, 'owner': visitor, 'exp': int(now or time.time()) + TTL,

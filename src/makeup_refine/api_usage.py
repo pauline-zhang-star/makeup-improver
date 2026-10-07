@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-PRICE_DATE = '2026-09-30'
+PRICE_DATE = '2026-10-07'
 PRICE_SOURCE = 'https://developers.openai.com/api/docs/pricing'
 # USD per million tokens, standard synchronous requests; taxes excluded.
 RATES = {
+    'gpt-5.6-luna': {'input': .20, 'cached_input': .02, 'output': 1.20},
     'gpt-4.1-mini': {'input': .40, 'cached_input': .10, 'output': 1.60},
     'gpt-4.1-mini-2025-04-14': {'input': .40, 'cached_input': .10, 'output': 1.60},
     # Direct Images edits have no cached-input discount.

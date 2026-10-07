@@ -36,6 +36,7 @@ def png(image):
 class OpenAIProvider:
     def __init__(self, api_key: str, vision_model: str, edit_model: str):
         self.vision_model, self.edit_model = vision_model, edit_model
+        self.review_model = os.environ.get("MAKEUP_REVIEW_MODEL", vision_model)
         self.usage_ledger = UsageLedger()
         self.trial_trace = None
         self.fast_ai = os.environ.get("MAKEUP_FAST_AI") == "1"
@@ -55,6 +56,9 @@ class OpenAIProvider:
 
     def _post(self, stage, endpoint, **kwargs):
         model = (kwargs.get('json') or kwargs.get('data'))['model']
+        if endpoint == 'chat/completions' and model.startswith('gpt-5.6'):
+            # The configured visual task has no need for a hidden reasoning pass.
+            kwargs['json'].setdefault('reasoning_effort', 'none')
         record = self.usage_ledger.begin(stage, endpoint, model)
         if endpoint == 'images/edits':
             data = kwargs.get('data') or {}
@@ -247,7 +251,7 @@ class OpenAIProvider:
             prompt, response_format = comparison_contract()
         try:
             response = self._post("comparison", "chat/completions", json={
-                "model": self.vision_model, "response_format": response_format,
+                "model": self.review_model, "response_format": response_format,
                 "messages": [{"role": "system", "content": prompt},
                              {"role": "user", "content": content}]})
             response.raise_for_status()

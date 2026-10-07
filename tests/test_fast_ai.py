@@ -71,7 +71,8 @@ def test_boards_keep_every_unique_pair_and_original_crop_pixels():
     assert np.array_equal(board.crop((board.width//2,36,board.width//2+80,126)), enhanced.crop(box))
 
 
-def test_provider_fast_path_uses_compact_schema_and_complete_images(monkeypatch):
+@pytest.mark.parametrize('vision_model', ['gpt-4.1-mini','gpt-5.6-luna'])
+def test_provider_fast_path_uses_compact_schema_and_complete_images(monkeypatch,vision_model):
     import httpx
     from makeup_refine.providers import OpenAIProvider
     monkeypatch.setenv('MAKEUP_FAST_AI', '1')
@@ -80,7 +81,7 @@ def test_provider_fast_path_uses_compact_schema_and_complete_images(monkeypatch)
         requests.append(json.loads(request.content))
         rows = [dict(a=area,c='unchanged',p=.95,b='Same visible makeup',t='Same visible makeup',i=None,z=None) for area in LOOK_AREAS]
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps({'p':[],'a':rows})}}]})
-    provider = OpenAIProvider('test','vision','unused')
+    provider = OpenAIProvider('test',vision_model,'unused')
     provider.client.close()
     provider.client = httpx.Client(base_url='https://api.openai.com/v1/',transport=httpx.MockTransport(handle))
     original = Image.new('RGB',(200,200),(10,20,30))
@@ -92,5 +93,46 @@ def test_provider_fast_path_uses_compact_schema_and_complete_images(monkeypatch)
     assert len(comparison.assessments) == 8
     payload = requests[0]
     assert payload['response_format']['type'] == 'json_schema'
+    assert payload.get('reasoning_effort') == ('none' if vision_model=='gpt-5.6-luna' else None)
     assert len([item for item in payload['messages'][1]['content'] if item['type']=='image_url']) == 3
     assert '"$defs"' not in payload['messages'][0]['content']
+
+
+def test_compact_unchanged_and_uncertain_reviews_keep_coverage_and_no_teaching():
+    rows=[dict(a=area,c='unchanged',p=.95,b='Same visible pigment') for area in LOOK_AREAS]
+    rows[0]=dict(a=LOOK_AREAS[0],c='uncertain',p=.4,b='Partly obscured',t='Partly obscured')
+    review=comparison_decode(json.dumps(dict(p=[],a=rows)))
+    assert len(review.assessments)==8 and not review.visible_steps()
+    assert review.assessments[1].before==review.assessments[1].after
+    rows[1]['c']='changed'
+    with pytest.raises(ValueError):
+        comparison_decode(json.dumps(dict(p=[],a=rows)))
+
+
+def test_analysis_and_review_can_use_separate_models_without_losing_checks(monkeypatch):
+    import httpx
+    from test_model_planning import design
+    from makeup_refine.providers import OpenAIProvider
+    monkeypatch.setenv('MAKEUP_FAST_AI','1')
+    monkeypatch.setenv('MAKEUP_REVIEW_MODEL','gpt-4.1-mini')
+    answer=design()
+    for decision in answer['region_decisions']:
+        for key in ('observation','style_reason','application_zh'):
+            decision.pop(key,None)
+    requests=[]
+    def handle(request):
+        payload=json.loads(request.content);requests.append(payload)
+        if payload['model']=='gpt-5.6-luna':
+            body=answer
+        else:
+            body={'p':[],'a':[dict(a=area,c='unchanged',p=.9,b='Same observed makeup') for area in LOOK_AREAS]}
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(body)}}]})
+    provider=OpenAIProvider('test','gpt-5.6-luna','gpt-image-2');provider.client.close()
+    provider.client=httpx.Client(base_url='https://api.openai.com/v1/',transport=httpx.MockTransport(handle))
+    image=Image.new('RGB',(20,20))
+    try:
+        assert len(provider.plan_techniques(image,'Auto',None).selected)==1
+        assert len(provider.explain_changes(image,image).assessments)==8
+    finally:provider.close()
+    assert [p['model'] for p in requests]==['gpt-5.6-luna','gpt-4.1-mini']
+    assert requests[0]['reasoning_effort']=='none' and 'reasoning_effort' not in requests[1]

@@ -271,13 +271,14 @@ class VercelHandler(WebHandler):
             os.chmod(upload, 0o600)
             env = os.environ.copy()
             env.setdefault('MAKEUP_FAST_AI', '1')
+            env.setdefault('MAKEUP_REVIEW_MODEL', 'gpt-4.1-mini')
             env['MAKEUP_EDIT_QUALITY'] = 'low'
             env['MPLCONFIGDIR'] = '/tmp/mpl'
             env['MAKEUP_DIAGNOSTICS'] = '1'
             env['MAKEUP_SKIP_REVIEW_HTML'] = '1'
             command = [sys.executable, '-m', 'makeup_refine.cli', str(upload),
                        '--output', str(output), '--style', style.value,
-                       '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
+                       '--landmark-model', str(model), '--vision-model', env.get('MAKEUP_PLANNING_MODEL', 'gpt-5.6-luna'),
                        '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1',
                        '--max-working-edge', '1536', '--defer-guidance']
             try:
@@ -389,10 +390,11 @@ class VercelHandler(WebHandler):
                 (output / 'result.json').write_text(json.dumps(report))
                 env = os.environ.copy()
                 env.setdefault('MAKEUP_FAST_AI', '1')
+                env.setdefault('MAKEUP_REVIEW_MODEL', 'gpt-4.1-mini')
                 env['MAKEUP_EDIT_QUALITY'] = 'low'
                 env['MAKEUP_SKIP_REVIEW_HTML'] = '1'
                 command = [sys.executable, '-m', 'makeup_refine.cli', '--retry-instructions',
-                           str(output), '--vision-model', 'gpt-4.1-mini']
+                           str(output), '--vision-model', env['MAKEUP_REVIEW_MODEL']]
                 subprocess.run(command, cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
                                capture_output=True, timeout=120, check=False)
                 job = public_job(job_id, output)

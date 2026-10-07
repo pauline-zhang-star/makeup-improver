@@ -52,6 +52,15 @@ def comparison_contract():
     schema = LookComparison.model_json_schema()
     row = schema['$defs']['AreaComparison']
     row['properties'] = {COMPARISON_KEYS[k]: v for k, v in row['properties'].items()}
+    base = row['properties']
+    variants = []
+    for change, fields in (('changed', ('a','c','p','b','t','i','z')),
+                           ('unchanged', ('a','c','p','b')),
+                           ('uncertain', ('a','c','p','b','t'))):
+        properties = {key: base[key] for key in fields}
+        properties['c'] = {'type': 'string', 'enum': [change]}
+        variants.append({'type': 'object', 'properties': properties})
+    schema['properties']['assessments']['items'] = {'anyOf': variants}
     schema['properties'] = {'p': schema['properties']['preservationIssues'],
                             'a': schema['properties']['assessments']}
     def close(node):
@@ -72,7 +81,9 @@ def comparison_contract():
                'a=area,c=change,p=confidence,b=before,t=after,i=instruction,z=instruction_zh. '
                'Use at most 12 English words per before/after (lips may use 18 to record mouth/teeth), '
                '20 English words per instruction and 45 Chinese characters per instruction_zh. '
-               'Keep exact location, direction and technique; unchanged/uncertain i and z are null.')
+               'Keep exact location, direction and technique. For unchanged areas write the identical '
+               'observed state once in b, omit t/i/z. For uncertain areas keep b/t and omit i/z. '
+               'Do not omit any area or preservation check.')
     return prompt, {'type': 'json_schema', 'json_schema': {
         'name': 'observed_makeup_changes', 'strict': True, 'schema': schema}}
 
@@ -84,9 +95,16 @@ def comparison_decode(content):
     reverse = {v: k for k, v in COMPARISON_KEYS.items()}
     rows = []
     for row in data['a']:
-        if set(row) != set(reverse):
+        expected = {'changed': set(reverse), 'unchanged': {'a','c','p','b'},
+                    'uncertain': {'a','c','p','b','t'}}.get(row.get('c'))
+        if expected is None or set(row) not in (expected, set(reverse)):
             raise ValueError('Incomplete comparison transport fields.')
-        rows.append({reverse[k]: v for k, v in row.items()})
+        expanded = {reverse[k]: v for k, v in row.items()}
+        if 't' not in row:
+            expanded['after'] = row['b']
+        expanded.setdefault('instruction', None)
+        expanded.setdefault('instruction_zh', None)
+        rows.append(expanded)
     return LookComparison.model_validate({'preservationIssues': data['p'], 'assessments': rows})
 
 

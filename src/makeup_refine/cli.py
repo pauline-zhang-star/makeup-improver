@@ -178,7 +178,8 @@ def main():
                 report.pop('errorCode', None)
                 if report['status'] != 'rejected':
                     report.pop('message', None)
-            report['visionModel'] = args.vision_model
+            report.setdefault('visionModel', args.vision_model)
+            report['reviewModel'] = getattr(provider, 'review_model', args.vision_model)
         else:
             if args.output.exists():
                 raise SpikeError('OUTPUT_EXISTS', 'Choose a new output directory to avoid mixing sessions.')
@@ -202,6 +203,7 @@ def main():
                     report['uploadedImage'] = 'uploadedImage.png'
             save_review(directory, original, None, report, intermediate=True)
             provider = OpenAIProvider(get_api_key(), args.vision_model, args.edit_model)
+            report['reviewModel'] = getattr(provider, 'review_model', args.vision_model)
             attach_usage(provider, directory, report)
             provider.trial_trace = TrialTrace(directory)
 

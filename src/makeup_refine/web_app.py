@@ -390,6 +390,7 @@ class WebHandler(BaseHTTPRequestHandler):
         output = RUNS / job_id
         env = os.environ.copy()
         env.setdefault('MAKEUP_FAST_AI', '1')
+        env.setdefault('MAKEUP_REVIEW_MODEL', 'gpt-4.1-mini')
         env['MAKEUP_EDIT_QUALITY'] = 'low'
         env['MPLCONFIGDIR'] = '/tmp/mpl'
         # The live page uses result.json and the saved image files. Build the
@@ -423,7 +424,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 with logs.open('wb') as log:
                     process = subprocess.Popen([sys.executable, '-m', 'makeup_refine.cli', str(upload),
                         '--output', str(output), '--style', style.value,
-                        '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
+                        '--landmark-model', str(model), '--vision-model', env.get('MAKEUP_PLANNING_MODEL', 'gpt-5.6-luna'),
                         '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1',
                         '--max-working-edge', '1536', '--defer-guidance'],
                         cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
@@ -463,13 +464,14 @@ class WebHandler(BaseHTTPRequestHandler):
                     raise ValueError('This result cannot provide instructions.')
                 env = os.environ.copy()
                 env.setdefault('MAKEUP_FAST_AI', '1')
+                env.setdefault('MAKEUP_REVIEW_MODEL', 'gpt-4.1-mini')
                 env['MAKEUP_EDIT_QUALITY'] = 'low'
                 env['MAKEUP_DEFER_REVIEW_HTML'] = '1'
                 env['MPLCONFIGDIR'] = '/tmp/mpl'
                 logs = UPLOADS / (job_id + '.log')
                 with logs.open('ab') as log:
                     process = subprocess.Popen([sys.executable, '-m', 'makeup_refine.cli',
-                        '--retry-instructions', str(directory), '--vision-model', 'gpt-4.1-mini'],
+                        '--retry-instructions', str(directory), '--vision-model', env['MAKEUP_REVIEW_MODEL']],
                         cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                         start_new_session=True)
                 JOB_PROCESSES[job_id] = process

@@ -170,7 +170,8 @@ def composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
 def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
                         correction_strength: float = .65, soft_mask=None,
                         hard_mask=None, soft_feather_pixels: float = 12,
-                        outer_feather_mask=None, outer_feather_pixels: float = 8):
+                        outer_feather_mask=None, outer_feather_pixels: float = 8,
+                        pigment_mask=None):
     """Keep protected pixels while matching low-frequency color at the seam.
 
     The generated makeup remains inside the supplied mask. A blurred local
@@ -180,7 +181,7 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
     """
     if edited.size != original.size or mask.size != original.size or mask.mode != 'L':
         raise SpikeError('QUALITY_CHECK_FAILED', 'The edge-safe composite dimensions or mask are invalid.')
-    for region_mask in (soft_mask, hard_mask, outer_feather_mask):
+    for region_mask in (soft_mask, hard_mask, outer_feather_mask, pigment_mask):
         if region_mask is not None and (region_mask.size != mask.size or region_mask.mode != 'L'):
             raise SpikeError('QUALITY_CHECK_FAILED', 'A regional composite mask is invalid.')
     if not 0 <= correction_strength <= 1:
@@ -240,7 +241,15 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
     edit_low = np.asarray(Image.fromarray(np.uint8(after)).filter(
         ImageFilter.GaussianBlur(radius)), dtype=np.float32)
     low_frequency_shift = np.clip(base_low - edit_low, -24., 24.)
-    corrected = np.clip(after + correction_strength * low_frequency_shift, 0., 255.)
+    correction_weight = np.full(alpha.shape, correction_strength, dtype=np.float32)
+    pigment_support = np.zeros_like(support)
+    if pigment_mask is not None:
+        # Contour/highlight and foundation are intentional low-frequency color changes.
+        # Match seams, but do not subtract that requested pigment throughout the core.
+        pigment_support = (np.asarray(pigment_mask) > 0) & support
+        correction_weight = np.where(pigment_support, correction_strength * (1. - alpha),
+                                     correction_weight)
+    corrected = np.clip(after + correction_weight[..., None] * low_frequency_shift, 0., 255.)
     result = np.rint(before + alpha[..., None] * (corrected - before)).clip(0, 255).astype(np.uint8)
     output = Image.fromarray(result)
     output.info['icc_profile'] = SRGB_BYTES
@@ -254,4 +263,6 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
         'outerFeatherCoverageFraction': outer_coverage,
         'outerFeatherPixels': outer_feather_pixels if outer_feather_mask is not None else 0,
         'protectedPixelsRestoredExactly': True,
+        'pigmentCorePreservationApplied': pigment_mask is not None,
+        'pigmentCoreCoverageFraction': float(np.mean(pigment_support)),
     }

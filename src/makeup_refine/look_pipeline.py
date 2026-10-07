@@ -201,6 +201,9 @@ class LookPipeline:
                     (np.asarray(points[263]) - np.asarray(points[33])) * image_scale))
                 eye_mask = (masks.mask_for(eye_items)
                             if eye_items else None)
+                pigment_items = [item for item in plan.selected
+                                 if item.get('region') in {'nose_contour', 'foundation'}]
+                pigment_mask = masks.mask_for(pigment_items) if pigment_items else None
                 if blush_items:
                     other_items = [item for item in plan.selected if item.get('region') != 'blush']
                     blush_mask = masks.mask_for(blush_items)
@@ -209,11 +212,13 @@ class LookPipeline:
                     enhanced, composite_report = edge_safe_composite(
                         original, aligned, mask, soft_mask=blush_mask, hard_mask=other_mask,
                         soft_feather_pixels=max(4, eye_span * .045),
-                        outer_feather_mask=eye_mask, outer_feather_pixels=max(3, eye_span * .025))
+                        outer_feather_mask=eye_mask, outer_feather_pixels=max(3, eye_span * .025),
+                        pigment_mask=pigment_mask)
                 else:
                     enhanced, composite_report = edge_safe_composite(
                         original, aligned, mask, outer_feather_mask=eye_mask,
-                        outer_feather_pixels=max(3, eye_span * .025))
+                        outer_feather_pixels=max(3, eye_span * .025),
+                        pigment_mask=pigment_mask)
                 complexion_texture_report = {'textureRestorationApplied': False}
                 foundation_items = [item for item in plan.selected
                                     if item.get('region') == 'foundation']

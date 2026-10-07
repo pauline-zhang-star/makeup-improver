@@ -999,3 +999,22 @@ def test_added_accessories_and_makeup_artifacts_reject_result(image, issue):
     assert result['status'] == 'rejected'
     assert result['steps'] == []
     assert issue in result['preservationIssues']
+
+
+def test_contour_and_foundation_pigment_survive_core_color_matching():
+    original = Image.new('RGB', (120, 100), (120, 120, 120))
+    edited = original.copy()
+    edited.paste((140, 110, 105), (20, 20, 70, 80))
+    edited.paste((140, 110, 105), (85, 20, 115, 80))
+    mask = Image.new('L', original.size, 0)
+    mask.paste(255, (20, 20, 70, 80))
+    mask.paste(255, (85, 20, 115, 80))
+    pigment = Image.new('L', original.size, 0)
+    pigment.paste(255, (20, 20, 70, 80))
+    prior, _ = edge_safe_composite(original, edited, mask)
+    result, report = edge_safe_composite(original, edited, mask, pigment_mask=pigment)
+    assert result.getpixel((45, 50)) == edited.getpixel((45, 50))
+    assert result.getpixel((45, 50))[0] > prior.getpixel((45, 50))[0]
+    assert result.getpixel((100, 50)) == prior.getpixel((100, 50))
+    assert result.getpixel((19, 50)) == original.getpixel((19, 50))
+    assert report['pigmentCorePreservationApplied']

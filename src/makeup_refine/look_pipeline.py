@@ -79,7 +79,8 @@ def reconcile_guidance_with_plan(explanation, selected):
 class LookPipeline:
     def __init__(self, editor: LookEditor, explainer: LookExplainer,
                  landmarks: LandmarkProvider, on_enhanced=None, on_candidate=None,
-                 on_plan=None, max_edit_attempts=2, on_attempt=None, on_aligned=None):
+                 on_plan=None, max_edit_attempts=2, on_attempt=None, on_aligned=None,
+                 defer_guidance=False):
         if max_edit_attempts not in (1, 2):
             raise ValueError('Image generation is limited to one or two attempts.')
         self.editor, self.explainer, self.landmarks = editor, explainer, landmarks
@@ -89,6 +90,7 @@ class LookPipeline:
         self.max_edit_attempts = max_edit_attempts
         self.on_attempt = on_attempt
         self.on_aligned = on_aligned
+        self.defer_guidance = defer_guidance
 
     def explain(self, original, enhanced, evidence=None):
         """May be retried on the saved pair without calling the image editor."""
@@ -313,6 +315,10 @@ class LookPipeline:
         evidence = build_comparison_evidence(original, enhanced, points, style, plan.selected,
                                              mask_for=masks.mask_for)
         metadata['comparisonEvidence'] = evidence
+        if self.defer_guidance:
+            return enhanced, {**metadata, **plan_report, 'status': 'preview_ready',
+                              'steps': [], 'assessments': [], 'comparisonStatus': 'awaiting_like',
+                              'imageEditCalls': len(attempts), 'guidanceDeferred': True}
         explanation = self.explain(original, enhanced, evidence=evidence)
         planned_areas = {('eyebrows' if item['region'] == 'brows' else
                           'complexion' if item['region'] == 'foundation' else item['region'])

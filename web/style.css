@@ -14,3 +14,5 @@ main{max-width:1350px;margin:auto;padding:0 38px 70px}.hero{height:335px;display
 .quota-status{margin:12px 0 0;color:#8f6944;text-align:center;font-size:11px;line-height:1.5}
 .progress-track{overflow:hidden}.progress-track span.indeterminate{width:35%!important;animation:progress-slide 1.8s ease-in-out infinite;transition:none}@keyframes progress-slide{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
 .progress-panel.serverless .progress-steps{display:none}
+
+#preview-result{display:block;width:100%;border-radius:12px}#preview-note,#guidance-status{font-size:13px;color:var(--muted);line-height:1.7}.preference-actions{display:flex;gap:12px;margin:18px 0}.preference-actions button{flex:1;padding:15px;border:1px solid #b9838b;border-radius:12px;background:transparent;color:#92545f;font:inherit;cursor:pointer}#like-look{background:#a96873;color:white}.preference-actions button:disabled{opacity:.55;cursor:wait}

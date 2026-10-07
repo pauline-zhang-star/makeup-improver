@@ -107,6 +107,11 @@ class AccessStore(SignedVisitors):
             return db.execute('SELECT 1 FROM access_events WHERE job_id=? LIMIT 1',
                               (job_id,)).fetchone() is not None
 
+    def owns(self, visitor, job_id):
+        with self.connect() as db:
+            return db.execute('SELECT 1 FROM quota_reservations WHERE job_id=? AND visitor_hash=?',
+                              (job_id, self.digest('visitor:' + visitor))).fetchone() is not None
+
     def event(self, name, visitor, job_id=None, detail=None, now=None):
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         with self.connect() as db:

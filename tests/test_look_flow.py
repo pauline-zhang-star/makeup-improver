@@ -1018,3 +1018,15 @@ def test_contour_and_foundation_pigment_survive_core_color_matching():
     assert result.getpixel((100, 50)) == prior.getpixel((100, 50))
     assert result.getpixel((19, 50)) == original.getpixel((19, 50))
     assert report['pigmentCorePreservationApplied']
+
+
+def test_deferred_guidance_returns_checked_preview_without_comparison(image):
+    provider = Provider()
+    enhanced, report = LookPipeline(provider, provider, Detector(), defer_guidance=True).run(image)
+    assert report['status'] == 'preview_ready'
+    assert report['steps'] == []
+    assert report['comparisonEvidence']['regions']
+    assert [call[0] for call in provider.calls] == ['plan', 'enhance']
+    explanation = LookPipeline(provider, provider, None).explain(image, enhanced, report['comparisonEvidence'])
+    assert explanation['status'] == 'completed'
+    assert [call[0] for call in provider.calls] == ['plan', 'enhance', 'explain']

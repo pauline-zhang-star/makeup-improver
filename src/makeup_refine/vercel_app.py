@@ -18,6 +18,7 @@ from PIL import Image, UnidentifiedImageError
 from .api_usage import no_provider_calls
 from .look_models import MakeupStyle
 from .redis_guard import RedisGuard
+from .guidance_ticket import issue, verify, TTL
 from .upload_format import UPLOAD_SUFFIXES, validate_upload
 from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job
 
@@ -137,7 +138,8 @@ class VercelHandler(WebHandler):
             original_file = output / 'originalImage.png'
             if job['originalUrl'] and not job['diagnostic']:
                 job['originalUrl'], job['afterUrl'] = compact_matched_pair(
-                    original_file, image_file)
+                    original_file, image_file, original_budget=450_000,
+                    enhanced_budget=1_200_000)
             else:
                 # Rejected diagnostic candidates may be returned at an unrelated
                 # size. Keep both visible without presenting them as accepted.
@@ -148,6 +150,13 @@ class VercelHandler(WebHandler):
         job['reviewUrl'] = None
         if status_override:
             job.update(status_override)
+        if job['status'] == 'preview_ready':
+            report = json.loads((output / 'result.json').read_text())
+            visitor, _ = (guard().visitor(guard().cookie_header(cookie, True))
+                          if cookie else self.visitor())
+            job['guidanceToken'] = issue(guard().secret, visitor, job_id, report,
+                                         job['originalUrl'], job['afterUrl'])
+            job['steps'] = []; job['callouts'] = []; job['plannedGuides'] = []
         if started_at is not None:
             job['serverDurationSeconds'] = round(time.perf_counter() - started_at, 1)
             api_seconds = sum(job.get('apiTiming', {}).values()) / 1000
@@ -205,6 +214,9 @@ class VercelHandler(WebHandler):
 
     def do_POST(self):
         started_at = time.perf_counter()
+        if self.path == '/api/guidance':
+            self.generate_guidance()
+            return
         if self.path != '/api/generate':
             self.respond(404, {'error': 'Not found.'})
             return
@@ -265,7 +277,7 @@ class VercelHandler(WebHandler):
                        '--output', str(output), '--style', style.value,
                        '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
                        '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1',
-                       '--max-working-edge', '1536']
+                       '--max-working-edge', '1536', '--defer-guidance']
             try:
                 completed = subprocess.run(command, cwd=ROOT, env=env,
                                            stdin=subprocess.DEVNULL, capture_output=True,
@@ -325,6 +337,76 @@ class VercelHandler(WebHandler):
             except (OSError, ValueError, json.JSONDecodeError):
                 guard().event('result_unavailable', visitor, job_id=job_id)
                 self.respond(502, {'error': 'The generated result could not be displayed.'}, cookie=cookie)
+
+
+    def generate_guidance(self):
+        cookie = None
+        lock = None
+        try:
+            visitor, cookie = self.visitor()
+            length = int(self.headers.get('Content-Length', '0'))
+            if self.headers.get('Content-Type', '').split(';')[0] != 'application/json' or not 0 < length <= MAX_REQUEST_BYTES:
+                raise ValueError('Instructions request is too large.')
+            request = json.loads(self.rfile.read(length))
+            before, after = request.get('originalUrl'), request.get('afterUrl')
+            ticket = verify(guard().secret, visitor, request.get('guidanceToken'), before, after)
+            job_id = ticket['id']
+            cache_key = 'makeup:guidance:' + job_id
+            cached = guard().command('GET', cache_key)
+            if cached:
+                job = json.loads(cached)
+                job.update(originalUrl=before, afterUrl=after)
+                self.respond(200, job, cookie=cookie)
+                return
+            lock_key = cache_key + ':lock'
+            if not guard().command('SET', lock_key, '1', 'NX', 'EX', 180):
+                self.respond(409, {'error': 'Instructions are already being prepared. Try again shortly.'}, cookie=cookie)
+                return
+            lock = lock_key
+            attempts_key = cache_key + ':attempts'
+            attempts = int(guard().command('INCR', attempts_key))
+            guard().command('EXPIRE', attempts_key, TTL)
+            if attempts > 2:
+                self.respond(429, {'error': 'Instructions retry limit reached for this preview.'}, cookie=cookie)
+                return
+            with tempfile.TemporaryDirectory(prefix='makeup-guidance-', dir='/tmp') as temporary:
+                output = Path(temporary)
+                for name, url in [('originalImage.png', before), ('enhancedImage.png', after)]:
+                    if not url.startswith('data:image/jpeg;base64,'):
+                        raise ValueError('Invalid preview image.')
+                    raw = base64.b64decode(url.split(',', 1)[1], validate=True)
+                    with Image.open(BytesIO(raw)) as image:
+                        if max(image.size) > 1800:
+                            raise ValueError('Invalid preview dimensions.')
+                        image.convert('RGB').save(output / name, compress_level=1)
+                report = ticket['report']
+                report.update(status='preview_ready', originalImage='originalImage.png',
+                              enhancedImage='enhancedImage.png', steps=[])
+                (output / 'result.json').write_text(json.dumps(report))
+                env = os.environ.copy()
+                env['MAKEUP_SKIP_REVIEW_HTML'] = '1'
+                command = [sys.executable, '-m', 'makeup_refine.cli', '--retry-instructions',
+                           str(output), '--vision-model', 'gpt-4.1-mini']
+                subprocess.run(command, cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                               capture_output=True, timeout=120, check=False)
+                job = public_job(job_id, output)
+                job.update(originalUrl=before, afterUrl=after, reviewUrl=None, uploadedUrl=None)
+                if job['status'] == 'preview_ready':
+                    raise RuntimeError('Instructions could not be verified. Please try again.')
+                if job['status'] != 'instructions_unavailable':
+                    saved = {k: v for k, v in job.items() if k not in ('originalUrl', 'afterUrl')}
+                    guard().command('SET', cache_key, json.dumps(saved), 'EX', TTL)
+                self.respond(200, job, cookie=cookie)
+        except (ValueError, binascii.Error, UnidentifiedImageError) as exc:
+            self.respond(400, {'error': str(exc)}, cookie=cookie)
+        except Exception:
+            self.respond(503, {'error': 'Instructions could not be prepared. Your preview is still available.'}, cookie=cookie)
+        finally:
+            if lock:
+                try:
+                    guard().command('DEL', lock)
+                except Exception:
+                    pass
 
 
 def main():

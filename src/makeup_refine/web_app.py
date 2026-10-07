@@ -182,7 +182,7 @@ def public_job(job_id, directory):
                           and item['landmarkResidualAfterFit'] <= .015), None)
     face_scale = reframing.get('scale') if reframing else None
     return {
-        'id': job_id, 'status': status, 'style': report.get('requestedStyle', 'Auto'),
+        'id': job_id, 'status': status, 'guidanceDeferred': report.get('guidanceDeferred', False), 'style': report.get('requestedStyle', 'Auto'),
         'message': report.get('message'), 'errorCode': report.get('errorCode'),
         'planningFailure': report.get('planningFailure'),
         'inputQuality': report.get('inputQuality'), 'inputRejected': report.get('inputRejected', False),
@@ -195,7 +195,7 @@ def public_job(job_id, directory):
         'afterUrl': f'/api/jobs/{job_id}/after' if visual else None,
         'diagnostic': bool(visual and report.get('enhancedImage') != 'enhancedImage.png'),
         'width': size[0] if size else None, 'height': size[1] if size else None,
-        'callouts': callouts_for(report, size) if size else [],
+        'callouts': callouts_for(report, size) if size and not (report.get('guidanceDeferred') and status != 'completed') else [],
         'steps': report.get('steps') or [],
         'planned': [{'id': x['technique_id'], 'area': x['region'],
                      'instruction': x.get('application') or x.get('instruction'),
@@ -212,7 +212,7 @@ def public_job(job_id, directory):
                                'id': item.get('technique_id'), 'reason': item.get('reason')}
                               for item in decisions],
         'preserved': plan.get('preserved_areas') or [],
-        'plannedGuides': planned_review_steps(report),
+        'plannedGuides': [] if report.get('guidanceDeferred') else planned_review_steps(report),
         'rejected': plan.get('rejected_proposals') or [],
         'pending': report.get('pendingChangeReviews') or [],
         'preservationIssues': report.get('preservationIssues') or [],
@@ -306,6 +306,8 @@ class WebHandler(BaseHTTPRequestHandler):
             try:
                 job = public_job(job_id, directory)
                 process = JOB_PROCESSES.get(job_id)
+                if process is not None and process.poll() is None and job['status'] == 'preview_ready':
+                    job['status'] = 'guidance_generating'
                 if (process is not None and process.poll() is not None and
                         job['status'] in ('starting', 'generating', 'plan_ready', 'enhanced_ready')):
                     job['status'] = 'failed'
@@ -346,6 +348,10 @@ class WebHandler(BaseHTTPRequestHandler):
                      review=parts[3] in ('review', 'inverse-scale-review'))
 
     def do_POST(self):
+        match = re.fullmatch(r'/api/jobs/([0-9a-f]{32})/guidance', self.path)
+        if match:
+            self.start_guidance(match[1])
+            return
         if self.path != '/api/jobs':
             self.respond(404, {'error': 'Not found.'})
             return
@@ -416,7 +422,8 @@ class WebHandler(BaseHTTPRequestHandler):
                     process = subprocess.Popen([sys.executable, '-m', 'makeup_refine.cli', str(upload),
                         '--output', str(output), '--style', style.value,
                         '--landmark-model', str(model), '--vision-model', 'gpt-4.1-mini',
-                        '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1'],
+                        '--edit-model', 'gpt-image-2', '--max-edit-attempts', '1',
+                        '--max-working-edge', '1536', '--defer-guidance'],
                         cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                         start_new_session=True)
                     JOB_PROCESSES[job_id] = process
@@ -434,6 +441,38 @@ class WebHandler(BaseHTTPRequestHandler):
         if not PUBLIC_MODE:
             access_store().event('generation_accepted', visitor, job_id=job_id, detail=style.value)
         self.respond(202, {'id': job_id, 'status': 'starting'}, cookie=cookie)
+
+    def start_guidance(self, job_id):
+        visitor, cookie = self.visitor()
+        directory = safe_job_directory(job_id)
+        if not directory or (PUBLIC_MODE and not access_store().owns(visitor, job_id)):
+            self.respond(404, {'error': 'Result unavailable.'}, cookie=cookie)
+            return
+        with _JOB_START_LOCK:
+            if JOB_PROCESSES.get(job_id) and JOB_PROCESSES[job_id].poll() is None:
+                self.respond(202, {'id': job_id, 'status': 'guidance_generating'}, cookie=cookie)
+                return
+            try:
+                report = json.loads((directory / 'result.json').read_text())
+                if report.get('status') == 'completed':
+                    self.respond(200, public_job(job_id, directory), cookie=cookie)
+                    return
+                if report.get('status') not in ('preview_ready', 'instructions_unavailable', 'guidance_generating'):
+                    raise ValueError('This result cannot provide instructions.')
+                env = os.environ.copy()
+                env['MAKEUP_DEFER_REVIEW_HTML'] = '1'
+                env['MPLCONFIGDIR'] = '/tmp/mpl'
+                logs = UPLOADS / (job_id + '.log')
+                with logs.open('ab') as log:
+                    process = subprocess.Popen([sys.executable, '-m', 'makeup_refine.cli',
+                        '--retry-instructions', str(directory), '--vision-model', 'gpt-4.1-mini'],
+                        cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                        start_new_session=True)
+                JOB_PROCESSES[job_id] = process
+                # The saved preview remains intact until the comparison finishes.
+                self.respond(202, {'id': job_id, 'status': 'guidance_generating'}, cookie=cookie)
+            except (OSError, ValueError):
+                self.respond(400, {'error': 'Could not start instructions for this result.'}, cookie=cookie)
 
 
 def main():

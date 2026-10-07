@@ -27,7 +27,7 @@ const translations = {
     styleAuto:['自动匹配','AI 根据照片选择'], styleNatural:['自然清透','轻盈日常'], styleWork:['通勤精致','干净利落'], styleKorean:['韩系柔和','柔雾与层次'], styleFresh:['元气清新','明亮有精神'], styleDate:['约会夜妆','更鲜明的妆感'], styleSophisticated:['知性高级','克制的轮廓'], styleGlam:['柔和华丽','柔焦光泽'],
     invalidFile:'请选择不超过 12 MB 的 JPG、PNG 或 HEIC 照片。', readFile:'无法读取这张照片。', badResponse:'本机服务返回了无法读取的内容。', unavailable:'本机服务暂时不可用。',
     progressUpload:'上传到本机服务，随后检查清晰度与人脸。', progressChecking:'正在核对生成效果', progressDrawing:'正在绘制你的妆容', progressAnalyzing:'正在分析照片', serverlessWorking:'正在处理妆容',
-    serverlessElapsed:(seconds)=>`已等待 ${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, '0')} 秒。照片分析、图片生成和结果核对都在同一次请求中进行，目前无法显示实时阶段；服务端约 4 分半后会结束请求。`,
+    serverlessElapsed:(seconds)=>`已等待 ${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, '0')} 秒。本次先完成照片分析和图片生成；喜欢后再准备教学，目前无法显示实时阶段；服务端约 4 分半后会结束请求。`,
     generationTimedOut:(stage, refunded)=>`本次生成超时（${stage}阶段）。${refunded ? '尚未调用图片服务，本次不计入免费次数。' : '已经开始调用模型，本次计入免费次数，并可能产生 API 费用。'}请查看下方剩余次数，避免连续重试。`,
     timeoutPartial:'效果图已通过本机检查，但生成操作指导时超时。你仍可拖动对比；这张图暂时没有经过原图对照验证的步骤。',
     timeoutStageLabels:{planning:'妆容规划', generation:'图片生成', generation_preparation:'出图准备', review:'本机结果检查', comparison:'变化对照', preflight:'照片检查', unknown:'处理'},
@@ -58,7 +58,7 @@ const translations = {
     styleAuto:['Auto','AI chooses from your photo'], styleNatural:['Natural','Light everyday polish'], styleWork:['Work / Polished','Clean and refined'], styleKorean:['Korean Soft','Soft focus and layers'], styleFresh:['Fresh','Bright and lively'], styleDate:['Date Night','More defined makeup'], styleSophisticated:['Sophisticated','Balanced definition'], styleGlam:['Soft Glam','Soft-focus glow'],
     invalidFile:'Choose a JPG, PNG, or HEIC photo under 12 MB.', readFile:'Could not read this photo.', badResponse:'The local service returned unreadable content.', unavailable:'The local service is temporarily unavailable.',
     progressUpload:'Sending the photo to the local service, then checking clarity and face visibility.', progressChecking:'Reviewing the generated result', progressDrawing:'Creating your look', progressAnalyzing:'Analyzing your photo', serverlessWorking:'Creating your makeup look',
-    serverlessElapsed:(seconds)=>`Waiting ${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s. Photo analysis, image generation and review happen in one request, so the live stage is unavailable. The server ends the request after about 4½ minutes.`,
+    serverlessElapsed:(seconds)=>`Waiting ${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s. This request analyzes your photo and creates a preview; the tutorial follows only if you like it, so the live stage is unavailable. The server ends the request after about 4½ minutes.`,
     generationTimedOut:(stage, refunded)=>`This run timed out during ${stage}. ${refunded ? 'No model call began, so this did not use a free try.' : 'A model call began, so this used a free try and may have incurred API cost.'} Check your remaining tries before retrying.`,
     timeoutPartial:'The enhanced image passed local checks, but the makeup-step comparison timed out. You can still drag to compare; verified how-to steps are unavailable for this image.',
     timeoutStageLabels:{planning:'makeup planning', generation:'image generation', generation_preparation:'image preparation', review:'local image review', comparison:'change comparison', preflight:'photo checking', unknown:'processing'},
@@ -90,7 +90,7 @@ function t(key, ...args) {
 }
 const terminal = new Set([
   'completed', 'completed_no_changes', 'completed_no_visible_changes',
-  'instructions_unavailable', 'planning_rejected', 'failed', 'rejected', 'candidate_rejected',
+  'preview_ready', 'instructions_unavailable', 'planning_rejected', 'failed', 'rejected', 'candidate_rejected',
 ]);
 const state = {file: null, previewUrl: null, sentImageDataUrl: null, style: 'Auto', jobId: null, timer: null, serverlessProgressTimer: null, serverlessStartedAt: null, dragging: false, lastJob: null, progressStarted: false, error: null, errorKey: null, quota: null};
 
@@ -175,6 +175,7 @@ function isHeic(file) {
 }
 
 function chooseFile(file) {
+  if (state.guidanceBusy) return;
   if (!file) return;
   if ((!['image/jpeg', 'image/png'].includes(file.type) && !isHeic(file)) || file.size > 12 * 1024 * 1024) {
     state.file = null;
@@ -185,6 +186,7 @@ function chooseFile(file) {
     show('empty-state', false);
     show('progress', false);
     show('comparison', false);
+    show('look-preview', false);
     show('guidance', false);
     show('audit', false);
     show('uploaded-link', false);
@@ -291,6 +293,7 @@ async function jsonResponse(response) {
 }
 
 function beginProgress() {
+  state.guidanceBusy = false; state.disliked = false;
   state.lastJob = null;
   state.error = null;
   state.errorKey = null;
@@ -374,6 +377,7 @@ function renderError(message, key = null) {
   show('progress', false);
   show('outcome', true);
   show('comparison', false);
+  show('look-preview', false);
   show('guidance', false);
   show('audit', false);
   show('uploaded-link', false);
@@ -418,6 +422,7 @@ async function pollJob() {
     return;
   }
   if (terminal.has(job.status)) {
+    state.guidanceBusy = false;
     clearTimeout(state.timer);
     try { renderJob(job); } catch {
       renderError(t('displayError'), 'displayError');
@@ -427,7 +432,7 @@ async function pollJob() {
     return;
   }
   state.lastJob = job;
-  progressFor(job);
+  if (!state.guidanceBusy) progressFor(job);
   state.timer = setTimeout(pollJob, 2200);
 }
 
@@ -584,16 +589,21 @@ function renderAudit(job) {
 
 function renderJob(job, preserveSlider = false) {
   state.lastJob = job;
+  if (!state.guidanceBusy) show('guidance-status', false);
   show('progress', false);
   show('empty-state', false);
   show('outcome', true);
-  $('generate').disabled = !state.file;
+  $('generate').disabled = !state.file || Boolean(state.guidanceBusy);
+  $('photo-input').disabled = Boolean(state.guidanceBusy);
   const hasPair = Boolean(job.originalUrl && job.afterUrl);
+  const preview = ['preview_ready', 'instructions_unavailable'].includes(job.status) && !job.diagnostic && Boolean(job.afterUrl);
   const success = job.status === 'completed';
   const visualOnly = job.status === 'completed_no_visible_changes';
   const noChange = ['completed_no_changes', 'planning_rejected'].includes(job.status);
   let message, kind;
-  if (job.inputRejected) {
+  if (preview) {
+    message = language === 'zh' ? '先看看这个妆容是否合你心意。' : 'See how this look feels to you.'; kind = 'success';
+  } else if (job.inputRejected) {
     message = t('inputRejected');
     kind = 'warning';
   } else if (success) {
@@ -605,7 +615,7 @@ function renderJob(job, preserveSlider = false) {
   } else if (job.providerReframing) {
     message = t('reframing', job.providerReframing.faceScaleChangePercent);
     kind = 'warning';
-  } else if (job.diagnostic) {
+  } else if (job.diagnostic || job.status === 'rejected') {
     message = t('diagnostic');
     kind = 'warning';
   } else if (visualOnly) {
@@ -620,14 +630,23 @@ function renderJob(job, preserveSlider = false) {
   }
   if (job.inputCrop) message = `${t(job.inputCrop.resized ? 'resizeNote' : 'cropNote')} ${message}`;
   setMessage(message, kind);
-  show('comparison', hasPair);
+  show('look-preview', preview);
+  if (preview) {
+    $('preview-result').src = job.afterUrl;
+    $('preview-note').textContent = language === 'zh' ? '喜欢这个效果？我们再核对变化，为你准备化妆指导。' : 'Like this look? We will review the changes and prepare your tutorial.';
+    $('like-look').textContent = language === 'zh' ? '♡ 喜欢 · 学怎么化' : '♡ Like · Learn this look';
+    $('dislike-look').textContent = language === 'zh' ? '不喜欢 · 换个风格' : 'Try another style';
+    $('like-look').disabled = Boolean(state.guidanceBusy);
+    $('dislike-look').disabled = Boolean(state.guidanceBusy);
+  }
+  show('comparison', hasPair && !preview);
   if (hasPair) {
     $('before-image').src = job.originalUrl;
     $('after-image').src = job.afterUrl;
-    renderCallouts(job.callouts);
+    renderCallouts(success ? job.callouts : []);
     if (!preserveSlider) splitAt(50);
   }
-  renderGuides(job);
+  if (preview) show('guidance', false); else renderGuides(job);
   renderAudit(job);
   show('uploaded-link', Boolean(job.uploadedUrl));
   if (job.uploadedUrl) $('uploaded-link').href = job.uploadedUrl;
@@ -635,6 +654,39 @@ function renderJob(job, preserveSlider = false) {
   if (job.reviewUrl) $('full-review').href = job.reviewUrl;
 }
 
+async function likeLook() {
+  const job = state.lastJob;
+  if (!job || state.guidanceBusy) return;
+  state.guidanceBusy = true;
+  renderJob(job, true);
+  show('guidance-status', true);
+  $('guidance-status').textContent = language === 'zh' ? '正在核对变化，准备化妆指导…' : 'Reviewing changes and preparing your tutorial…';
+  try {
+    const online = state.quota?.mode === 'serverless';
+    const response = await fetch(online ? '/api/guidance' : `/api/jobs/${job.id}/guidance`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(online ? {guidanceToken: job.guidanceToken, originalUrl: job.originalUrl, afterUrl: job.afterUrl} : {}),
+    });
+    const result = await jsonResponse(response);
+    if (result.status === 'instructions_unavailable') result.guidanceToken = job.guidanceToken;
+    if (online || response.status === 200) {
+      state.guidanceBusy = false;
+      show('guidance-status', false);
+      renderJob(result);
+    } else { state.jobId = job.id; await pollJob(); }
+  } catch (error) {
+    state.guidanceBusy = false;
+    renderJob(job, true);
+    show('guidance-status', true);
+    $('guidance-status').textContent = error.message;
+  }
+}
+$('like-look').addEventListener('click', likeLook);
+$('dislike-look').addEventListener('click', () => {
+  if (state.guidanceBusy) return;
+  setMessage(language === 'zh' ? '换一种风格，再试试新的妆容。' : 'Choose another style and try a new look.', 'success');
+  $('styles').scrollIntoView({behavior:'smooth', block:'center'});
+});
 $('generate').addEventListener('click', generate);
 $('audit-toggle').addEventListener('click', () => {
   const open = $('audit-body').hidden;

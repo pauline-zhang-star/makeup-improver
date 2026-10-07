@@ -248,3 +248,42 @@ def test_finished_local_preflight_refunds_without_provider_call(tmp_path, monkey
     assert store.remaining(visitor)['visitorRemaining'] == 2
     assert store.remaining(visitor)['dailyRemaining'] == 50
     assert web_app.JOB_RESERVATIONS == {}
+
+
+def test_guidance_endpoint_reuses_preview_and_prevents_duplicate_workers(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, 'RUNS', tmp_path / 'runs')
+    monkeypatch.setattr(web_app, 'UPLOADS', tmp_path / 'uploads')
+    monkeypatch.setattr(web_app, 'STATE_DB', tmp_path / 'state.sqlite3')
+    monkeypatch.setattr(web_app, 'PUBLIC_MODE', False)
+    monkeypatch.setattr(web_app, 'JOB_PROCESSES', {})
+    web_app.UPLOADS.mkdir()
+    job_id = 'd' * 32
+    directory = web_app.RUNS / job_id
+    directory.mkdir(parents=True)
+    report = {'status': 'preview_ready', 'guidanceDeferred': True,
+              'originalImage': 'originalImage.png', 'enhancedImage': 'enhancedImage.png', 'steps': []}
+    (directory / 'result.json').write_text(json.dumps(report))
+    (directory / 'originalImage.png').write_bytes(png_bytes())
+    (directory / 'enhancedImage.png').write_bytes(png_bytes())
+    calls = []
+    class Process:
+        def poll(self): return None
+    monkeypatch.setattr(web_app.subprocess, 'Popen', lambda command, **kwargs: (calls.append(command) or Process()))
+    def call(method, path):
+        handler = object.__new__(web_app.WebHandler)
+        handler.path = path
+        handler.headers = {}
+        handler.visitor = lambda: ('local', None)
+        handler.respond = lambda status, data, **kwargs: (setattr(handler, 'status', status), setattr(handler, 'body', data))
+        getattr(handler, method)()
+        return handler.status, handler.body
+    preview = web_app.public_job(job_id, directory)
+    assert preview['steps'] == preview['callouts'] == preview['plannedGuides'] == []
+    for _ in range(2):
+        status, body = call('do_POST', f'/api/jobs/{job_id}/guidance')
+        assert status == 202
+    assert len(calls) == 1 and '--retry-instructions' in calls[0]
+    assert '--edit-model' not in calls[0]
+    status, body = call('do_GET', f'/api/jobs/{job_id}')
+    assert status == 200 and body['status'] == 'guidance_generating'
+    assert json.loads((directory / 'result.json').read_text())['status'] == 'preview_ready'

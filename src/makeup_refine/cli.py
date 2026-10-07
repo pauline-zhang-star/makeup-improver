@@ -76,7 +76,9 @@ def save_review(directory, original, enhanced, report, *, intermediate=False):
 
 def save_working_png(image, path):
     # Public worker PNGs are temporary: use lossless fast encoding, retaining pixels.
-    options = {'compress_level': 1} if os.environ.get('MAKEUP_SKIP_REVIEW_HTML') == '1' else {}
+    fast = any(os.environ.get(name) == '1' for name in
+               ('MAKEUP_SKIP_REVIEW_HTML', 'MAKEUP_DEFER_REVIEW_HTML'))
+    options = {'compress_level': 1} if fast else {}
     image.save(path, format='PNG', **options)
 
 
@@ -117,6 +119,8 @@ def main():
                         help='Optional public-service limit for the working image long edge')
     parser.add_argument('--retry-instructions', type=Path,
                         help='Compare the saved pair in this directory; never regenerate the image')
+    parser.add_argument('--defer-guidance', action='store_true',
+                        help='Return a locally checked preview; compare only after user likes it')
     args = parser.parse_args()
     if args.retry_instructions:
         if args.image or args.output or args.style != 'Auto':
@@ -239,7 +243,8 @@ def main():
 
             enhanced, outcome = LookPipeline(provider, provider, detector, save_enhanced,
                                              save_candidate, save_plan, args.max_edit_attempts,
-                                             save_attempt, save_aligned).run(original, args.style)
+                                             save_attempt, save_aligned,
+                                             defer_guidance=args.defer_guidance).run(original, args.style)
             report.update(outcome)
         save_review(directory, original, enhanced, report,
                     intermediate=os.environ.get('MAKEUP_DEFER_REVIEW_HTML') == '1')

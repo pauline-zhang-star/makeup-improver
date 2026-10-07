@@ -329,3 +329,79 @@ def test_redis_refund_targets_the_day_of_the_original_reservation():
     assert refund[0] == 'EVAL'
     assert 'makeup:q:2026-10-02:all' in refund
     assert 'makeup:q:2026-10-03:all' not in refund
+
+
+def test_liked_preview_only_runs_comparison_and_reuses_cached_result(monkeypatch):
+    from makeup_refine.guidance_ticket import issue
+
+    class Store(FakeGuard):
+        def __init__(self):
+            super().__init__()
+            self.values = {}
+        def command(self, op, key, *args):
+            if op == 'GET': return self.values.get(key)
+            if op == 'SET':
+                if 'NX' in args and key in self.values: return None
+                self.values[key] = args[0]; return 'OK'
+            if op == 'INCR':
+                self.values[key] = int(self.values.get(key, 0)) + 1
+                return self.values[key]
+            if op == 'EXPIRE': return 1
+            if op == 'DEL': self.values.pop(key, None); return 1
+    store = Store()
+    monkeypatch.setattr(vercel_app, '_GUARD', store)
+    visitor, signed_cookie = store.visitor('')
+    cookie = store.cookie_header(signed_cookie, True)
+    before = 'data:image/jpeg;base64,' + base64.b64encode(photo_bytes()).decode()
+    after = before
+    ticket = issue(store.secret, visitor, 'c' * 32, {'flow': 'image_first', 'guidanceDeferred': True}, before, after)
+    calls = []
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        assert '--retry-instructions' in command
+        assert '--edit-model' not in command
+        output = Path(command[command.index('--retry-instructions') + 1])
+        report = json.loads((output / 'result.json').read_text())
+        report.update(status='completed', steps=[{'area': 'lips', 'instruction': 'Blend inward.'}])
+        (output / 'result.json').write_text(json.dumps(report))
+    monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
+    body = json.dumps({'guidanceToken': ticket, 'originalUrl': before, 'afterUrl': after}).encode()
+    for _ in range(2):
+        status, payload, _ = request('do_POST', '/api/guidance', body, cookie=cookie)
+        assert status == 200
+        assert json.loads(payload)['steps'][0]['area'] == 'lips'
+    assert len(calls) == 1
+    assert store.reservations == 0
+    bad = json.dumps({'guidanceToken': ticket, 'originalUrl': before, 'afterUrl': after + 'changed'}).encode()
+    status, _, _ = request('do_POST', '/api/guidance', bad, cookie=cookie)
+    assert status == 400 and len(calls) == 1
+
+
+def test_preview_response_ticket_matches_first_visit_cookie(tmp_path, monkeypatch):
+    from makeup_refine.guidance_ticket import verify
+    store = FakeGuard()
+    monkeypatch.setattr(vercel_app, '_GUARD', store)
+    monkeypatch.setattr(vercel_app, 'ROOT', tmp_path)
+    (tmp_path / 'models').mkdir()
+    (tmp_path / 'models' / 'face_landmarker.task').write_bytes(b'model')
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    def fake_run(command, **kwargs):
+        assert '--defer-guidance' in command
+        output = Path(command[command.index('--output') + 1])
+        output.mkdir()
+        (output / 'originalImage.png').write_bytes(photo_bytes())
+        (output / 'enhancedImage.png').write_bytes(photo_bytes())
+        (output / 'result.json').write_text(json.dumps({'status': 'preview_ready',
+            'flow': 'image_first', 'guidanceDeferred': True, 'enhancedImage': 'enhancedImage.png', 'steps': []}))
+        (output / 'api-usage.json').write_text(json.dumps({'calls': [{'stage': 'generation'}]}))
+        return type('Result', (), {'returncode': 0})()
+    monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
+    body = json.dumps({'image': base64.b64encode(photo_bytes()).decode()}).encode()
+    status, payload, headers = request('do_POST', '/api/generate', body)
+    job = json.loads(payload)
+    assert status == 200 and job['status'] == 'preview_ready'
+    visitor, _ = store.visitor(headers['Set-Cookie'])
+    ticket = verify(store.secret, visitor, job['guidanceToken'], job['originalUrl'], job['afterUrl'])
+    assert ticket['id'] == job['id']
+    assert job['steps'] == job['callouts'] == job['plannedGuides'] == []
+    assert len(payload) < 4_100_000

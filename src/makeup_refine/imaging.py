@@ -3,45 +3,13 @@ from io import BytesIO
 import warnings
 import math
 import numpy as np
-from PIL import Image, ImageCms, ImageDraw, ImageFilter, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageCms, ImageFilter, ImageOps, UnidentifiedImageError
 from . import heif_support  # registers the Pillow HEIF decoder
 from .models import SpikeError
 
 Image.MAX_IMAGE_PIXELS = 20_000_000
 SRGB_PROFILE = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
 SRGB_BYTES = SRGB_PROFILE.tobytes()
-
-
-def edit_canvas(image: Image.Image):
-    """Pad to GPT Image 2's size constraints without stretching or cropping input."""
-    w, h = image.size
-    scale = max(1., math.sqrt(655360 / (w * h)))
-    cw, ch = math.ceil(w * scale / 16) * 16, math.ceil(h * scale / 16) * 16
-    cw, ch = max(cw, math.ceil(ch / 3 / 16) * 16), max(ch, math.ceil(cw / 3 / 16) * 16)
-    if max(cw, ch) > 3840 or cw * ch > 8294400:
-        raise SpikeError('UNSUPPORTED_IMAGE', 'Image canvas exceeds supported model dimensions.')
-    left, top = (cw-w)//2, (ch-h)//2
-    pixels = np.pad(np.asarray(image), ((top,ch-h-top),(left,cw-w-left),(0,0)), mode='edge')
-    padded = Image.fromarray(pixels)
-    padded.info['icc_profile'] = SRGB_BYTES
-    return padded, (left, top, left+w, top+h)
-
-
-def scaled_edit_canvas(image: Image.Image) -> Image.Image:
-    """Meet GPT Image 2's size limits without inventing a border around a face."""
-    w, h = image.size
-    scale = max(1., math.sqrt(655360 / (w * h)))
-    cw, ch = math.ceil(w * scale / 16) * 16, math.ceil(h * scale / 16) * 16
-    while cw * ch < 655360:
-        if cw / w <= ch / h:
-            cw += 16
-        else:
-            ch += 16
-    if max(cw, ch) > 3840 or max(cw / ch, ch / cw) > 3 or cw * ch > 8294400:
-        raise SpikeError('UNSUPPORTED_IMAGE', 'Image canvas exceeds supported model dimensions.')
-    result = image.resize((cw, ch), Image.Resampling.LANCZOS) if (cw, ch) != image.size else image.copy()
-    result.info['icc_profile'] = SRGB_BYTES
-    return result
 
 
 def compatible_edit_size(image: Image.Image) -> tuple[int, int]:
@@ -171,27 +139,6 @@ def quality_precheck(image: Image.Image) -> None:
         raise SpikeError("IMAGE_BLURRY", "Hold the camera steady and focus on your face.")
 
 
-def composite(original: Image.Image, edited: Image.Image, mask: Image.Image,
-              blend_strength: float = 1.0) -> Image.Image:
-    """Blend once in encoded sRGB: original + strength * mask * (candidate-original).
-
-    A strength sweep changes only this coefficient, never regenerates an image.
-    The convention is recorded explicitly so tuning is reproducible.
-    """
-    if not np.isfinite(blend_strength) or not 0 <= blend_strength <= 1:
-        raise ValueError("blend_strength must be between 0 and 1")
-    if edited.size != original.size or mask.size != original.size:
-        raise SpikeError("QUALITY_CHECK_FAILED", "The edit changed the image dimensions.")
-    if mask.mode != "L":
-        raise SpikeError("QUALITY_CHECK_FAILED", "The blend mask must be grayscale.")
-    before = np.asarray(to_srgb(original), dtype=np.float64)
-    after = np.asarray(to_srgb(edited), dtype=np.float64)
-    alpha = blend_strength * np.asarray(mask, dtype=np.float64)[..., None] / 255
-    result = Image.fromarray(np.rint(before + alpha * (after - before)).clip(0, 255).astype(np.uint8))
-    result.info["icc_profile"] = SRGB_BYTES
-    return result
-
-
 def outer_envelope(support):
     """Fill holes with the same four-connected corner semantics as PIL floodfill.
 
@@ -295,7 +242,7 @@ def edge_safe_composite(original: Image.Image, edited: Image.Image, mask: Image.
     correction_weight = np.full(alpha.shape, correction_strength, dtype=np.float32)
     pigment_support = np.zeros_like(support)
     if pigment_mask is not None:
-        # Contour/highlight and foundation are intentional low-frequency color changes.
+        # Selected cosmetic pigment is an intentional low-frequency color change.
         # Match seams, but do not subtract that requested pigment throughout the core.
         pigment_support = (np.asarray(pigment_mask) > 0) & support
         correction_weight = np.where(pigment_support, correction_strength * (1. - alpha),

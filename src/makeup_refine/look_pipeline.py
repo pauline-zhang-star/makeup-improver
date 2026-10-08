@@ -1,18 +1,14 @@
 """Validate a model-designed look, generate, then explain the resulting pixels."""
 import numpy as np
 from pydantic import ValidationError
-from .imaging import to_srgb, composite, edge_safe_composite
+from .imaging import to_srgb, edge_safe_composite
 from .interfaces import LandmarkProvider, LookEditor, LookExplainer
 from .look_models import MakeupStyle, LookComparison
 from .look_annotations import annotation_anchors
-from .look_mask import (makeup_mask, lip_mask, complexion_mask, direct_edit_mask,
-                        lip_center_highlight_mask, outer_wing_mask, DirectMaskCache)
-from .look_alignment import align_candidate, register_direct_candidate
-from .look_composite import composite_complexion_base, preserve_complexion_texture
-from .landmarks import validate_face, LIPS, INNER_LIPS
-from .lip_blend import blend_full_lips
+from .look_mask import direct_edit_mask, DirectMaskCache
+from .look_alignment import register_direct_candidate
+from .look_composite import preserve_complexion_texture
 from .technique_catalog import TechniquePlan, MIN_DISTINCT_REGIONS, PLANNED_REGION_TARGET
-from PIL import Image
 from .comparison_evidence import build_comparison_evidence, unresolved_evidence
 from .models import SpikeError
 from .preflight import check_face, face_detail_metrics
@@ -141,7 +137,7 @@ class LookPipeline:
                        'rejectedProposals': plan.rejected_proposals,
                        'plannedDistinctRegionsTarget': PLANNED_REGION_TARGET,
                        'plannedTargetMet': len({item['region'] for item in plan.selected}) >= PLANNED_REGION_TARGET,
-                       'aestheticThresholdsUsed': plan.selection_method == 'legacy_threshold_recipe',
+                       'aestheticThresholdsUsed': False,
                        'thresholdsEmpiricallyCalibrated': False}
         if getattr(self.editor, 'last_technique_analysis', None) is not None:
             plan_report['techniqueAnalysis'] = self.editor.last_technique_analysis
@@ -204,7 +200,8 @@ class LookPipeline:
                 eye_mask = (masks.mask_for(eye_items)
                             if eye_items else None)
                 pigment_items = [item for item in plan.selected
-                                 if item.get('region') in {'nose_contour', 'foundation'}]
+                                 if item.get('region') in {'eyeshadow', 'blush', 'lips', 'brows',
+                                                           'nose_contour', 'foundation'}]
                 pigment_mask = masks.mask_for(pigment_items) if pigment_items else None
                 if blush_items:
                     other_items = [item for item in plan.selected if item.get('region') != 'blush']
@@ -343,86 +340,3 @@ class LookPipeline:
         return enhanced, {**explanation, **metadata, **plan_report,
                           **coverage,
                           'imageEditCalls': len(attempts)}
-
-    def recompose(self, original, candidate, style=None, selected=None):
-        """Replay local compositing on a saved candidate; no editor or explainer call.
-
-        ``selected`` should be the saved technique plan. Older runs without a
-        plan use the legacy full-style mask and are explicitly flagged.
-        """
-        style = MakeupStyle(style or MakeupStyle.AUTO)
-        points, _ = check_face(original, self.landmarks)
-        fallback = not selected
-        mask = (makeup_mask(original.size, points, style) if fallback
-                else direct_edit_mask(original.size, points, style, selected))
-        enhanced, metadata = self._compose(original, to_srgb(candidate), style, points,
-                                            mask, selected=selected or [])
-        return enhanced, {**metadata, 'status': 'instructions_unavailable', 'steps': [],
-                          'assessments': [], 'comparisonStatus': 'pending_new_comparison',
-                          'imageEditCalls': 0, 'comparisonCalls': 0,
-                          'legacyFullStyleMaskFallback': fallback,
-                          'message': 'Locally recomposited image. Compare this exact pair before showing makeup instructions.'}
-
-    def _compose(self, original, candidate, style, points, mask, selected=(),
-                 lips_selected=None, localized_lip_only=False, outer_wing_selected=None):
-        aligned, alignment = align_candidate(original, candidate, points, self.landmarks)
-        aligned_points = validate_face(self.landmarks.detect(aligned))
-        lip_deviation = float(np.linalg.norm((np.asarray(aligned_points) -
-                              np.asarray(points))[LIPS + INNER_LIPS], axis=1).max())
-        # A saved plan already contains any selected foundation technique's
-        # small landmark mask. Only old runs without a plan use the legacy
-        # full-style complexion fallback.
-        base_mask = complexion_mask(original.size, points) if (not selected and style != MakeupStyle.AUTO) else None
-        base = composite_complexion_base(original, aligned, base_mask) if base_mask else original
-        if lips_selected is None:
-            lips_selected = (not selected) or any(item.get('region') == 'lips' for item in selected)
-        if outer_wing_selected is None:
-            outer_wing_selected = any(item.get('technique_id') == 'eyeliner_05' for item in selected)
-        lips = lip_mask(original.size, points, style)
-        other_mask = (mask if localized_lip_only else
-                      Image.fromarray(np.where(np.asarray(lips) > 0, 0,
-                                               np.asarray(mask)).astype(np.uint8)))
-        base = composite(base, aligned, other_mask)
-        if localized_lip_only:
-            base = _directional_cosmetic_transfer(
-                original, aligned, base, lip_center_highlight_mask(original.size, points),
-                direction='brighten')
-            enhanced, lip_blend = base, None
-            lip_mode = 'localized_center_highlight'
-        elif lips_selected:
-            enhanced, lip_blend = blend_full_lips(base, aligned, points, aligned_points, lips)
-            lip_mode = 'spatial_adaptive_poisson'
-        else:
-            enhanced, lip_blend = base, None
-            lip_mode = 'unchanged'
-        if outer_wing_selected:
-            enhanced = _directional_cosmetic_transfer(
-                original, aligned, enhanced, outer_wing_mask(original.size, points),
-                direction='darken')
-        deviation = validate_candidate_geometry(enhanced, original, points, self.landmarks)
-        # Save the finished image BEFORE explaining it. No text can modify it afterward.
-        if self.on_enhanced:
-            self.on_enhanced(enhanced)
-        report = dict(requestedStyle=style.value,
-                      annotationAnchors=annotation_anchors(points),
-                      maxLandmarkDeviation=deviation, humanReviewRequired=True,
-                      alignment=alignment, lipTransferMode=lip_mode,
-                      lipBlendQuality=lip_blend,
-                      lipLandmarkDeviation=lip_deviation,
-                      maskCoverageFraction=float(np.mean(np.asarray(mask) > 0)),
-                      faceBaseStrength=.6 if base_mask else 0,
-                      faceBaseCoverageFraction=float(np.mean(np.asarray(base_mask) > 0)) if base_mask else 0)
-        return enhanced, report
-
-
-def _directional_cosmetic_transfer(original, candidate, current, shape, direction):
-    """Transfer only generated highlight or dark pigment inside a tight soft mask."""
-    old = np.asarray(original.convert('RGB'), dtype=np.float32)
-    new = np.asarray(candidate.convert('RGB'), dtype=np.float32)
-    luminance_weights = np.array((.2126, .7152, .0722), dtype=np.float32)
-    change = (new - old) @ luminance_weights
-    if direction == 'darken':
-        change = -change
-    activation = np.clip((change - 6.) / 20., 0., 1.)
-    opacity = np.rint(np.asarray(shape, dtype=np.float32) * activation).astype(np.uint8)
-    return composite(current, candidate, Image.fromarray(opacity))

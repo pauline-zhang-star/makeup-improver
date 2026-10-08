@@ -1,4 +1,4 @@
-"""Image-first product contracts, independent of the legacy three-area planner."""
+"""Image-first product styles and observed-change contracts."""
 from enum import Enum
 from typing import Literal, Optional, get_args
 from pydantic import Field, model_validator

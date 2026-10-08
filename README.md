@@ -2,7 +2,7 @@
 
 The current product flow is **Selfie → Optional Style (Auto) → Model designs a coordinated look → Validate catalog actions → Generate → Before/After Slider → How to Achieve This Look**. The planning model chooses at most seven techniques from the [catalog](docs/technique-mapping-table.md), based on the original photo, existing makeup and requested style. Each proposal includes a concrete visual observation, a style/cohesion reason, a photo-specific application and bounded rendering strength. It can preserve already-suitable areas or return fewer changes. Code does not add techniques to fill a four-area quota, apply a fixed style recipe, or use uncalibrated aesthetic scores to decide which techniques qualify. The final photograph remains the source of truth: a separate comparison call explains only observed changes. There is no makeup questionnaire or account system; public deployment uses a small database only for anonymous quotas and metadata-only access events.
 
-**Status: Python prototype with a localhost Web page and a public deployment configuration, not an iOS app.** [Current planning architecture](docs/MODEL_PLANNING_FLOW.md) describes the model/code boundary and remaining limitations. Provider integration is covered by mocked tests; the revised planning flow still needs a real-photo visual trial. Region visibility, allowed techniques, conflicts, strength limits and color-reference reliability are checked locally; face landmarks still anchor masks and geometry checks. The current flow preserves the API makeup strength, repairs small coherent camera movement, and retries once from the original if checks fail. A selected technique remains intent, not proof of execution or good taste. Historical threshold/recipe selection is retained only for offline audits. The original masked-edit experiment remains available as `makeup-refine-legacy`.
+**Status: Python prototype with a localhost Web page and a public deployment configuration, not an iOS app.** [Current planning architecture](docs/MODEL_PLANNING_FLOW.md) describes the model/code boundary and remaining limitations. Provider integration is covered by mocked tests; the revised planning flow still needs a real-photo visual trial. Region visibility, allowed techniques, conflicts, strength limits and color-reference reliability are checked locally; face landmarks still anchor masks and geometry checks. The current flow preserves the API makeup strength, repairs small coherent camera movement, and retries once from the original if checks fail. A selected technique remains intent, not proof of execution or good taste. Retired threshold recipes and the original masked-edit experiment have been removed; the model-designed flow is the supported implementation.
 
 ## Install
 
@@ -107,15 +107,6 @@ The image-edit request now states these geometry constraints before generation: 
 
 The acceptance check also compares eye-opening, nose-width and mouth-width ratios between the original and generated image. A global shift or scale can pass landmark alignment while still changing these local proportions, so a relative change above 5% triggers the bounded correction retry. Eye-opening is directional: either eye may stay the same or become slightly more open for selected eyelid makeup, but any decrease is rejected regardless of how small it is.
 
-The older local compositing experiment remains available for diagnosis on a saved candidate, without an API call:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m makeup_refine.recompose_cli outputs/previous-run \
-  --output outputs/repaired-run --landmark-model models/face_landmarker.task
-```
-
-This creates a fresh image pair and slider. Previous instructions are intentionally cleared because they have not been compared against the repaired image.
-
 The private output directory contains `originalImage.png`, `enhancedImage.png`, `result.json`, and `review.html`. The enhanced photograph is a single full image. The report compares the two separate images with a draggable divider and an accessible range slider. Instructions come from observed differences in eyebrows, eyeliner, lashes, eyeshadow, nose contour, blush, lips, or complexion; unchanged and low-confidence areas are omitted. No template advice is substituted when comparison fails.
 
 Generation first makes one vision request to measure and choose techniques, then one image-edit request, then one comparison request. If no technique qualifies, the original is retained as `enhancedImage.png` and the latter two calls are skipped. An identical pixel result skips comparison. There is at most one automatic paid image retry after a failed geometric or protected-pixel check; set `--max-edit-attempts 1` to disable it. Candidates, aligned candidates, and attempt diagnostics are saved separately. Transport errors are not automatically retried. If instructions fail, the image remains saved. Retry **only the comparison**:
@@ -129,53 +120,6 @@ The current path preserves color conversion, metadata stripping, local face/qual
 For GPT Image 2, input and output use the same valid canvas. For the 856 × 1200 test photo this adds four protected edge pixels on each side, without resizing the photo content; the returned border is cropped away exactly. Inputs below the minimum pixel area are uniformly enlarged before this small padding step, and only those outputs require resizing back. Oversized sources are reduced to supported limits. The app no longer arbitrarily reduces all photos to a 1024-pixel edge.
 
 In a live direct-output test on `IMG_1202.JPG`, the 856 × 1200 source reached the image API without the old 1024-pixel downscale. The returned candidate changed makeup visibly, but shifted facial landmarks by 0.0164 of the image dimensions (limit 0.0120) and changed unselected pixels substantially (mean 13.84; 44.3% above an 8-level RGB delta). The direct result was correctly rejected and kept only as `outputs/img1202-direct-api-016/candidateImage.png` for diagnosis; no `enhancedImage.png` or instructions were accepted. This shows why a prompt and provider mask alone cannot guarantee a usable final result. The app now reports the failure instead of quietly fading it back toward the original.
-
-## Run the legacy masked experiment
-
-The spike now separates generation strength from final presentation. See
-[the controlled-blending experiment](docs/BLENDING_SPIKE.md) for the full-strength
-candidate workflow and the offline 0.3/0.5/0.7 calibration tool.
-
-Copy `docs/provider-review.example.json` to a local review file. Record the evaluated model, review date and evidence for permitted face editing and mask support. The example intentionally does not claim either gate is cleared. The OpenAI adapter follows the [image editing API](https://developers.openai.com/api/docs/guides/image-generation); API support alone is not proof of policy clearance or acceptable results. Choose vision and image models available to your account explicitly.
-
-Put your OpenAI API key in `.env` in the project root:
-
-```dotenv
-OPENAI_API_KEY=your_actual_key
-```
-
-Put `.env` in the project root, beside `pyproject.toml`.
-The file is ignored by Git. The command reads it automatically when run from the
-project directory; an existing `OPENAI_API_KEY` environment variable takes precedence.
-For a fresh checkout, copy `.env.example` to `.env` and replace the placeholder.
-Then run:
-
-```sh
-makeup-refine-legacy private-fixtures/selfie.jpg \
-  --output outputs/trial-001 \
-  --landmark-model models/face_landmarker.task \
-  --vision-model YOUR_VISION_MODEL \
-  --edit-model YOUR_IMAGE_EDIT_MODEL \
-  --blend-strength 0.5 \
-  --provider-review private-fixtures/provider-review.json
-```
-
-Outputs are `original.png` (orientation-normalized, metadata-stripped working image), `refined.png`, `mask.png`, `result.json`, and `review.html`. The offline report includes a keyboard-accessible before/after slider and instructions. A no-changes outcome writes only the original and JSON. Failures after pipeline initialization write structured error JSON and exit nonzero. Output directories must be new to prevent stale results from mixing with another photo.
-
-Photos are downscaled to a maximum 1024-pixel edge before paid calls. The complete frame is sent; cropping is disabled. The refined PNG matches this working original's dimensions, not necessarily the camera file's resolution. Provider output with different dimensions is rejected; no warping or silent resizing is used. Some image models have fixed output sizes, so arbitrary-aspect photos may fail this gate. Establish compatible model/dimension behavior during the spike before promoting an adapter.
-
-## Legacy masked experiment: guarantees and limits
-
-- Cheap resolution, exposure, blur and face-count/size checks run before AI calls. Face-crop checks prevent a bright background hiding an underexposed face.
-- Pydantic rejects unknown fields, unsupported refinements, more than three changes, duplicate areas, and changes to uncertain makeup. Free-text instructions still require semantic review.
-- MediaPipe contours produce upper-lash, upper-eyelid and lip masks that follow head roll. Eye interiors and the inner mouth are explicitly cut out. These geometric masks need validation across pose, skin tones, eye anatomy, glasses and makeup styles. Detected landmarks do **not** establish that occluded eyes/lips are visible; robust visibility gating remains unvalidated.
-- One edit request covers the union of areas and requests a clearly visible full technique. Final strength is controlled deterministically by `--blend-strength` (experimental default 0.5). A second generation attempt can follow a candidate/geometry failure; a too-weak or too-strong final blend returns an error for local tuning instead of paying for another image. There are no hidden HTTP retries.
-- Compositing copies pixels outside mask support exactly and feathers only inside that support. The provider receives fully transparent editable pixels; local feathering is kept separate and multiplied by blend strength exactly once. Candidate geometry is checked before blending, so opacity cannot conceal shifted landmarks. Tests enforce these guards, correct provider alpha-mask polarity, bounded retries and no paid calls on rejected inputs.
-- Automated gates check dimensions, protected-landmark motion and per-region pixel-delta bounds. They are heuristic guards, **not proof of identity, realism, subtlety or a useful makeup improvement**. Every successful report explicitly requires human review and keeps `phase1Validated: false`. Natural eyelid shadows and pigmentation must not be treated as evidence of makeup without a confident assessment.
-- Results include short English/Chinese makeup instructions. Click a step in the offline report to highlight its location; eye masks get separate outlines when separated. JSON retains the detailed instruction alongside the short guide. These mask outlines are location hints, not precise technique arrows or proof that the intended change was achieved.
-- No credentials, images or raw provider errors are logged. Source photos and normalized photos are not sent to analytics.
-
-This local experiment keeps outputs until **you delete them**. They are stored in a directory created with owner-only permissions and excluded from Git under `outputs/`. It does not implement the future service's automatic 15–30 minute object-storage retention. Provider-side retention is separate and must be checked in the review.
 
 ## Verification
 

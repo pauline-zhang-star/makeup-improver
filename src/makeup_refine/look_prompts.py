@@ -8,6 +8,15 @@ LOOK_HARMONY_PRINCIPLES = (
     'whole-face result that moves the existing makeup toward the requested style. '
     'Style sets the overall direction, color relationships, finish and visual emphasis; intensity '
     'is a means to that result, not a goal to maximize or minimize independently. '
+    'Adapt pigment hue, saturation, depth, coverage and contrast to the visible skin tone and undertone, '
+    'not ethnicity. On deeper skin, avoid barely visible skin-matched brown or ashy pale pigment; '
+    'use sufficient color payoff and luminance/chroma contrast within catalog limits. Soft or sheer '
+    'describes blending and finish, not invisible pigment. Preserve the original skin tone and exposure. '
+    'Every selected pigment effect must be discernible at normal full-photo viewing size. '
+    'For selected lip pigment, account for different natural upper/lower lip pigmentation: '
+    'choose coordinated coverage so both lips read as one harmonious applied color, preserving '
+    'natural shading and texture rather than flattening them. Do not leave the upper lip looking '
+    'unpainted while the lower lip alone is brightly colored. '
     'Read the original makeup as a whole and judge brows, eyes, cheeks and lips in relation to each '
     'other. Decide which areas should lead and which should support them. Coordinate pigment '
     'warmth/coolness, relative depth, saturation, edge softness and finish without making every '
@@ -31,7 +40,7 @@ STYLE_BRIEFS = {
     MakeupStyle.AUTO: 'Auto means a light, soft everyday makeup look suited to the visible selfie. Lightness describes the overall everyday impression, not a fixed intensity for every feature. Prefer flattering placement and shape over simply making pigment darker. If the existing makeup is already heavy, reduce excess pigment instead of adding more. Do not require a style selection.',
     MakeupStyle.NATURAL: 'Natural: restrained definition, softly blended pigment, and realistic skin texture.',
     MakeupStyle.WORK: 'Work / Polished means a complete, deliberately polished daytime makeup look: tidy brows, refined eyes, softly coordinated cheeks and clearly visible lipstick with a tidy cosmetic lip edge. Keep it office-appropriate and restrained, but do not substitute a generic natural or bare-faced everyday look.',
-    MakeupStyle.KOREAN_SOFT: 'Korean Soft: softly diffused eyes, fresh blush and softly graduated lips. This describes makeup only, not ethnicity or facial anatomy.',
+    MakeupStyle.KOREAN_SOFT: 'Korean Soft: visibly colored but softly diffused eyes, fresh blush and softly graduated lips. This describes makeup only, not ethnicity or facial anatomy.',
     MakeupStyle.FRESH: 'Fresh: lively but balanced blush and lip color, light eye definition, and realistic skin texture.',
     MakeupStyle.DATE_NIGHT: 'Date Night: a visibly stronger evening makeup look with clearly defined brows, expressive eyes and richer coordinated lip color, while preserving the wearer\'s exact face and identity.',
     MakeupStyle.SOPHISTICATED: 'Sophisticated: controlled contrast, precise tapered definition, and harmonious eye and lip finishes.',
@@ -42,7 +51,7 @@ STYLE_RENDERING_RULES = {
     MakeupStyle.AUTO: 'Target a harmonious, airy everyday impression, using low contrast where it supports the whole look. Prefer brows with visible individual hairs and softly diffused edges, light eye definition, and a sheer, restrained lip where appropriate; retain or add local definition when needed to balance the face. Judge the finished look, not just the size of the edit. When identifiable applied brow makeup is too heavy or block-like for this target, select a supported brow-softening technique; natural dark hairs alone do not justify lightening; when lips are too saturated, select lip chroma softening. Preserve useful shape and definition while reducing excess pigment. Do not interpret visible improvement as mandatory darkening, saturation increase or sharper borders.',
     MakeupStyle.NATURAL: 'Use sheer, skin-like finishes and soft neutral definition. Keep brows close to their natural shape, place any cheek flush on the apples, and make selected lip tint softly perceptible but restrained. Avoid crisp edges and visible contour.',
     MakeupStyle.WORK: 'Build a complete, visibly polished daytime look with softly groomed brows, refined neutral lid color, fine upper-lash definition, a light coordinated cheek tint and clearly visible, deliberately applied lip makeup. For bare or lightly made-up lips, select supported lip pigment and/or placement techniques that produce clearly perceptible lipstick color and a neatly finished cosmetic edge within catalog bounds. The finished lip must read as intentionally made up in the full-photo comparison, not merely natural lip color, clear gloss or a barely perceptible freshness boost. Choose an office-appropriate but distinct rose, muted red or another coordinated lipstick direction using relative color deltas permitted by the catalog. Natural lip color being suitable for everyday wear is not sufficient reason to preserve bare lips for this polished target. Preserve lips only when clearly visible existing applied lip makeup already provides clearly perceptible lipstick color and a tidy cosmetic edge suited to the whole requested look; cite those visible product cues in the preservation reason. Never invent applied lipstick or foundation from natural pigmentation, shadows or skin texture. Coordinate visible lipstick with cheek and eye colors; office-appropriate restraint must not erase the lip makeup or fade it to bare-looking color. Keep shine and wing length controlled, and all pigment changes inside catalog limits. Preserve lip contact, mouth opening, teeth visibility and natural anatomy exactly. A lip plan is not permission to change the mouth state. Retain a restrained skin-like finish in selected complexion areas; do not add a full-face coverage pass. Rendering must execute only selected techniques within their masks and bounds.',
-    MakeupStyle.KOREAN_SOFT: 'Use softly diffused upper-lid color, soft hairlike brow definition without a carved lower edge, a clearly visible but sheer youthful pink flush centered on the apples closer to the nose and blended outward with no round patch, and a visible gradient lip tint concentrated at the center and feathered toward the edges.',
+    MakeupStyle.KOREAN_SOFT: 'Use visible, softly diffused upper-lid pigment with sufficient contrast against the actual eyelid skin; choose hue and saturation suited to its tone rather than skin-matched brown that disappears. Soft edges must not erase visible color. Use soft hairlike brow definition without a carved lower edge, a clearly visible but sheer youthful pink flush centered on the apples closer to the nose and blended outward with no round patch, and a visible gradient lip tint concentrated at the center and feathered toward the edges.',
     MakeupStyle.FRESH: 'Use a light, lively look: place a sheer blush on the apples and blend it softly outward, pair it with a fresh but balanced lip, keep eye definition light, and preserve skin texture.',
     MakeupStyle.DATE_NIGHT: 'Make this clearly read as evening makeup, richer than Auto: defined, groomed brows strong enough to frame expressive eyes; a tapered outer wing and blended outer-corner shadow for depth; richer coordinated lip pigment and supportive cheek color, according to the selected techniques. On bare or lightly made-up brows, preserve natural hair color and build a clear shape through filling genuine gaps, refining the tail or controlled edge definition within the existing outline. Keep visible hair strokes and blended transitions; clearly defined does not mean a solid dark block. Do not choose lighter brows as the default counterweight to stronger eyes or lips. Reduce brow pigment only when the original shows identifiable excessive applied product, with a specific reason it disrupts the evening look; natural darkness or prominent hairs alone are not such evidence. Preserve already suitable definition. Coordinate color temperature, depth and finish without weakening the Date Night character or forcing every feature to maximum contrast. Keep pigment within the selected areas and retain all anatomy and eye-opening protections.',
     MakeupStyle.SOPHISTICATED: 'Use controlled, precise definition: groomed brow tails, clean tapered eye edges, a restrained cheekbone sweep, and coordinated satin-like color. Keep placement deliberate and avoid shine everywhere or heavy contrast.',
@@ -63,7 +72,7 @@ def enhancement_prompt(style, plan=None):
         style_mode = (
             'A named makeup style was selected. Use the wider permitted selected-technique mask and make '
             'the chosen style visibly recognizable at its own target intensity, coverage and finish. '
-            'Natural, Korean Soft and Fresh still require light or sheer pigment; selecting a named style '
+            'Natural, Korean Soft and Fresh require softly blended, skin-adapted pigment that remains visible; selecting a named style '
             'does not automatically mean darker makeup. Date Night calls for a richer evening result. '
             'The wider mask provides room for appropriate placement and blending, not a requirement for '
             'greater pigment strength. This relaxation applies only to cosmetic '
@@ -98,6 +107,7 @@ def enhancement_prompt(style, plan=None):
         lip_specific_direction = (
             'For the selected lower-lip center highlight, add a small light-catching accent only at the '
             'center of the lower lip; preserve its overall hue, saturation, gloss, outline and corners. '
+            'Do not lighten the entire lower lip or turn the two lips into mismatched colors. '
             if any(item['technique_id'] == 'lips_02' for item in selected) else '')
         technique_heading = 'Apply the selected catalog techniques: '
         direction = (('Overall coordinated look: ' + look_direction + '. '
@@ -247,6 +257,14 @@ def comparison_prompt(*, include_schema=True):
         'strength. Do not add a new technique in translation. For unchanged or uncertain areas set '
         'instruction_zh to null. '
         'Do not mistake natural pigmentation, lighting changes or altered anatomy for a makeup step. '
+        'Compare upper and lower lip pigment separately against the original. Natural baseline '
+        'differences and small specular highlights are normal; flag newly exaggerated mismatched '
+        'lip colors or uneven product coverage as makeup_artifacts in preservationIssues. '
+        'Never describe coverage as even when one lip has visible uneven or mismatched pigment. '
+        'For eyeshadow, require identifiable new pigment or a changed cosmetic placement, color or finish '
+        'that is discernible in the full-photo pair and supported by matched detail crops. A tiny warm '
+        'RGB shift, natural lid folds or pre-existing brown skin shadow alone is insufficient; classify '
+        'uncertain when applied eyeshadow cannot be distinguished reliably. '
         'For nose_contour compare the exact location and contrast of bridge highlight and nostril-side '
         'shading in both images. Existing light and natural shadows are not newly applied contour. '
         'For complexion describe the specific local tone-evenness, blemish-coverage or shine change '
@@ -255,6 +273,11 @@ def comparison_prompt(*, include_schema=True):
         'A wider or narrower cosmetic lip outline from lipstick or lip liner is allowed and must '
         'not itself be flagged as a preservation issue. Mouth opening, teeth and expression must stay unchanged. '
         'Explicitly inspect mouth state and teeth visibility in BOTH photographs. '
+        'Inspect the upper/lower lip contact line in matched crops: closed lips must retain a natural '
+        'thin dark crease, not a newly introduced gray, bare-colored or unpainted band between colored '
+        'lip surfaces. Distinguish that artifact from a real open-mouth cavity and normal highlights. '
+        'Flag newly introduced lip-seam gaps as makeup_artifacts; do not provide instructions that '
+        'teach reproducing them. Compare the full final composite, not only the model candidate. '
         'In the lips before/after evidence state whether lips are closed or parted and whether '
         'teeth are visible; report uncertainty honestly if not discernible. '
         'If closed lips become parted or parted lips become closed, add mouth_state to preservationIssues. '

@@ -4,12 +4,11 @@ import httpx
 import pytest
 from PIL import Image
 
-from makeup_refine.api_usage import UsageLedger, attach_usage, estimate, no_provider_calls, safe_usage
+from makeup_refine.api_usage import attach_usage, estimate, no_provider_calls, safe_usage
 from makeup_refine.providers import OpenAIProvider
 from makeup_refine.models import SpikeError
 from makeup_refine.cli import save_review
 from makeup_refine.look_view import api_cost_html
-from test_look_flow import assessments
 
 CHAT = {'prompt_tokens': 1000, 'completion_tokens': 200,
         'prompt_tokens_details': {'cached_tokens': 400}}

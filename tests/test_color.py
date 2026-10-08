@@ -4,10 +4,8 @@ import numpy as np
 import pytest
 from PIL import Image, ImageCms
 
-from makeup_refine.imaging import SRGB_BYTES, SRGB_PROFILE, composite, load_image, to_srgb
+from makeup_refine.imaging import SRGB_BYTES, SRGB_PROFILE, edge_safe_composite, load_image, to_srgb
 from makeup_refine.models import SpikeError
-from makeup_refine.pipeline import Pipeline
-from test_pipeline import Detector, Editor, Vision
 
 
 def test_converts_profile_before_stripping_metadata():
@@ -58,7 +56,7 @@ def test_composite_embeds_matching_profile_and_preserves_pixels(tmp_path):
     edited = to_srgb(Image.new('RGB', (512, 512), (180, 138, 97)))
     mask = Image.new('L', (512, 512))
     mask.paste(255, (100, 100, 120, 120))
-    result = composite(original, edited, mask)
+    result, _ = edge_safe_composite(original, edited, mask)
     buffer = BytesIO()
     result.save(buffer, format='PNG')
     buffer.seek(0)
@@ -66,11 +64,3 @@ def test_composite_embeds_matching_profile_and_preserves_pixels(tmp_path):
         assert decoded.info['icc_profile'] == original.info['icc_profile']
         outside = np.asarray(mask) == 0
         assert np.array_equal(np.asarray(decoded)[outside], np.asarray(original)[outside])
-
-
-def test_single_attempt_budget_is_enforced():
-    image = Image.fromarray(np.random.default_rng(10).integers(60, 190, (512, 512, 3), dtype=np.uint8))
-    editor = Editor(fail=2)
-    with pytest.raises(SpikeError, match='one attempt'):
-        Pipeline(Vision(), editor, Detector(), max_edit_attempts=1).run(image)
-    assert editor.calls == [0]

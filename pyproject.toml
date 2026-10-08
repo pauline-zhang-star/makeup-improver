@@ -15,8 +15,6 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 makeup-refine = "makeup_refine.cli:main"
-makeup-recompose = "makeup_refine.recompose_cli:main"
-makeup-refine-legacy = "makeup_refine.legacy_cli:main"
 makeup-check = "makeup_refine.check_cli:main"
 
 [tool.setuptools.packages.find]

@@ -1,4 +1,4 @@
-"""Render observed steps, never the legacy fixed technique instructions."""
+"""Render observed steps and current result states."""
 from html import escape
 from .look_annotations import planned_review_steps
 

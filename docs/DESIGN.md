@@ -1,3 +1,5 @@
+> Historical design record. Retired experiment commands and code described here were removed on 2026-10-07. Use [the current planning architecture](MODEL_PLANNING_FLOW.md) and [README](../README.md) for supported behavior.
+
 # AI Makeup Refine — MVP Design Doc
 
 > Implementation revision: [IMAGE_FIRST_FLOW.md](IMAGE_FIRST_FLOW.md) describes

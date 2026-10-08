@@ -58,10 +58,7 @@ def test_selected_technique_keeps_chinese_application_for_review_only():
     assert plan.selected[0]['application_zh'] == '沿原有眉形用细笔触填补空隙。'
 
 
-def test_production_validator_never_calls_threshold_selector_or_filler(monkeypatch):
-    def forbidden(*args, **kwargs): raise AssertionError('legacy path used')
-    for name in ('select','_check','complete_placement_proposals','thresholds_for_style'):
-        monkeypatch.setattr(TechniqueCatalog, name, forbidden)
+def test_production_validator_uses_only_model_proposals():
     assert len(validate_design(design()).selected)==1
     assert validate_design(design([])).selected==[]
     for style in MakeupStyle:

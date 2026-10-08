@@ -44,6 +44,8 @@ MIME = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
 ASSET_ROUTES = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
 JOB_PROCESSES = {}
+JOB_PHASES = {}
+JOB_LAST_STATUS = {}
 JOB_RESERVATIONS = {}
 _ACCESS_STORE = None
 _STORE_LOCK = threading.Lock()
@@ -82,6 +84,8 @@ def cleanup_expired():
                 elif item.is_file() and directory == UPLOADS:
                     item.unlink()
                 JOB_PROCESSES.pop(job_id, None)
+                JOB_PHASES.pop(job_id, None)
+                JOB_LAST_STATUS.pop(job_id, None)
             except OSError:
                 continue
 
@@ -306,12 +310,26 @@ class WebHandler(BaseHTTPRequestHandler):
             try:
                 job = public_job(job_id, directory)
                 process = JOB_PROCESSES.get(job_id)
-                if process is not None and process.poll() is None and job['status'] == 'preview_ready':
+                if (process is not None and process.poll() is None and
+                        JOB_PHASES.get(job_id) == 'guidance' and job['status'] == 'preview_ready'):
                     job['status'] = 'guidance_generating'
                 if (process is not None and process.poll() is not None and
                         job['status'] in ('starting', 'generating', 'plan_ready', 'enhanced_ready')):
                     job['status'] = 'failed'
                     job['message'] = 'The local workflow stopped before a final result was saved. Check the local log.'
+                # Record transitions, rather than every poll, for local diagnosis.
+                signature = (job['status'], JOB_PHASES.get(job_id),
+                             process.poll() if process is not None else None)
+                if JOB_LAST_STATUS.get(job_id) != signature:
+                    JOB_LAST_STATUS[job_id] = signature
+                    try:
+                        UPLOADS.mkdir(parents=True, exist_ok=True)
+                        with (UPLOADS / (job_id + '.events.jsonl')).open('a') as log:
+                            log.write(json.dumps({'time': time.time(), 'status': signature[0],
+                                                  'workerPhase': signature[1],
+                                                  'exitCode': signature[2]}) + '\n')
+                    except OSError:
+                        pass  # Diagnostic logging must not delay displaying a result.
                 self.respond(200, job)
             except (OSError, ValueError, json.JSONDecodeError):
                 self.respond(503, {'error': 'Result is being saved. Retry shortly.'})
@@ -430,6 +448,7 @@ class WebHandler(BaseHTTPRequestHandler):
                         cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                         start_new_session=True)
                     JOB_PROCESSES[job_id] = process
+                    JOB_PHASES[job_id] = 'generation'
                     if PUBLIC_MODE:
                         JOB_RESERVATIONS[job_id] = visitor
             except OSError:
@@ -452,7 +471,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self.respond(404, {'error': 'Result unavailable.'}, cookie=cookie)
             return
         with _JOB_START_LOCK:
-            if JOB_PROCESSES.get(job_id) and JOB_PROCESSES[job_id].poll() is None:
+            if (JOB_PROCESSES.get(job_id) and JOB_PROCESSES[job_id].poll() is None
+                    and JOB_PHASES.get(job_id) == 'guidance'):
                 self.respond(202, {'id': job_id, 'status': 'guidance_generating'}, cookie=cookie)
                 return
             try:
@@ -475,6 +495,7 @@ class WebHandler(BaseHTTPRequestHandler):
                         cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                         start_new_session=True)
                 JOB_PROCESSES[job_id] = process
+                JOB_PHASES[job_id] = 'guidance'
                 # The saved preview remains intact until the comparison finishes.
                 self.respond(202, {'id': job_id, 'status': 'guidance_generating'}, cookie=cookie)
             except (OSError, ValueError):

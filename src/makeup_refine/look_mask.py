@@ -39,25 +39,6 @@ def _sparse_max_filter(mask, width):
     return result
 
 
-def complexion_mask(size, points):
-    """Inward-feathered facial skin, excluding openings and lip pigment."""
-    w, h = size
-    xy = np.asarray(points, dtype=float) * (w, h)
-    eye_span = float(np.linalg.norm(xy[263] - xy[33]))
-    mask = Image.new('L', size, 0)
-    draw = ImageDraw.Draw(mask)
-    draw.polygon([tuple(xy[i]) for i in FACE_OVAL], fill=255)
-    for upper, lower in zip(UPPER_EYES, LOWER_EYES):
-        draw.polygon([tuple(xy[i]) for i in upper] +
-                     [tuple(xy[i]) for i in reversed(lower)], fill=0)
-    draw.polygon([tuple(xy[i]) for i in INNER_LIPS], fill=0)
-    pixels = np.asarray(mask).copy()
-    pixels[np.asarray(lip_mask(size, points)) > 0] = 0
-    mask = Image.fromarray(pixels)
-    feather = mask.filter(ImageFilter.GaussianBlur(max(2, eye_span * .07)))
-    return Image.fromarray(np.minimum(pixels, np.asarray(feather)))
-
-
 def _style_expansion(style):
     """A selected look has more room for placement than conservative Auto."""
     return 1.0 if MakeupStyle(style or MakeupStyle.AUTO) == MakeupStyle.AUTO else 1.25
@@ -113,6 +94,21 @@ class DirectMaskCache:
         return self.masks[key]
 
 
+def mouth_interior_mask(size, points):
+    """Protect an open mouth without cutting a bare strip from a closed lip seam.
+
+    A narrow landmark polygon on closed lips represents the contact crease,
+    not visible oral interior. Mouth state is also checked by the image review.
+    """
+    xy = np.asarray(points, dtype=float) * size
+    width = float(np.linalg.norm(xy[61] - xy[291]))
+    gap = float(np.linalg.norm(xy[13] - xy[14]))
+    opening = Image.new('L', size, 0)
+    if width > 0 and gap / width > .04:
+        ImageDraw.Draw(opening).polygon([tuple(xy[i]) for i in INNER_LIPS], fill=255)
+    return opening
+
+
 def lip_mask(size, points, style=MakeupStyle.AUTO):
     """Original lip pigment and a small outline allowance; never the mouth interior."""
     w, h = size
@@ -138,7 +134,8 @@ def lip_mask(size, points, style=MakeupStyle.AUTO):
     width = base_width + (4 if expansion > 1 else 0)
     lip = _sparse_max_filter(lip, width)
     draw = ImageDraw.Draw(lip)
-    draw.polygon([tuple(xy[i]) for i in INNER_LIPS], fill=0)
+    lip = Image.fromarray(np.where(np.asarray(mouth_interior_mask(size, points)) > 0,
+                                  0, np.asarray(lip)).astype(np.uint8))
     soft = lip.filter(ImageFilter.GaussianBlur(max(1, eye_span * .008)))
     return Image.fromarray(np.minimum(np.asarray(lip), np.asarray(soft)))
 
@@ -151,7 +148,8 @@ def lip_pigment_mask(size, points):
     lip = Image.new('L', size, 0)
     draw = ImageDraw.Draw(lip)
     draw.polygon([tuple(xy[i]) for i in LIPS], fill=255)
-    draw.polygon([tuple(xy[i]) for i in INNER_LIPS], fill=0)
+    lip = Image.fromarray(np.where(np.asarray(mouth_interior_mask(size, points)) > 0,
+                                  0, np.asarray(lip)).astype(np.uint8))
     soft = lip.filter(ImageFilter.GaussianBlur(max(1, eye_span * .012)))
     return Image.fromarray(np.minimum(np.asarray(lip), np.asarray(soft)))
 
@@ -172,21 +170,6 @@ def lip_center_highlight_mask(size, points):
     local = local.filter(ImageFilter.GaussianBlur(max(1., mouth_width * .015)))
     pigment = np.asarray(lip_pigment_mask(size, points))
     return Image.fromarray(np.minimum(np.asarray(local), pigment))
-
-
-def outer_wing_mask(size, points):
-    """Short feathered strokes beyond the outer eye corners only."""
-    w, h = size
-    xy = np.asarray(points, dtype=float) * (w, h)
-    eye_span = float(np.linalg.norm(xy[263] - xy[33]))
-    mask = Image.new('L', size, 0)
-    draw = ImageDraw.Draw(mask)
-    for index, direction in ((33, -1), (263, 1)):
-        x, y = xy[index]
-        draw.line((x, y, x + direction * eye_span * .12,
-                   y - eye_span * .035), fill=255,
-                  width=max(3, round(eye_span * .055)))
-    return mask.filter(ImageFilter.GaussianBlur(max(1., eye_span * .008)))
 
 
 def makeup_mask(size, points, style=MakeupStyle.AUTO):
@@ -249,9 +232,7 @@ def makeup_mask(size, points, style=MakeupStyle.AUTO):
     combined = np.maximum.reduce((eye_strength.astype(np.uint8),
                                   np.rint(diffuse_cheeks).astype(np.uint8),
                                   np.rint(diffuse_nose * .55).astype(np.uint8)))
-    opening = Image.new('L', size, 0)
-    ImageDraw.Draw(opening).polygon([tuple(xy[i]) for i in INNER_LIPS], fill=255)
-    combined[np.asarray(opening) > 0] = 0
+    combined[np.asarray(mouth_interior_mask(size, points)) > 0] = 0
     return Image.fromarray(combined)
 
 

@@ -1,10 +1,12 @@
-"""Local technique-planned image flow. Legacy experiments live in legacy_cli."""
+"""Local technique-planned image generation and comparison-only retry."""
 import argparse
 import json
 import os
 from pathlib import Path
 import sys
 import shutil
+import time
+from contextlib import contextmanager
 from PIL import Image
 from .config import get_api_key
 from .imaging import load_image, to_srgb
@@ -16,6 +18,25 @@ from .api_usage import attach_usage
 from .trial_trace import TrialTrace, trace_for_report
 from .photo_framing import frame_photo
 from .landmark_cache import CachedLandmarks
+
+
+@contextmanager
+def record_worker_phase(directory, phase):
+    """Keep local shutdown diagnostics without photos or provider payloads."""
+    if directory is None:
+        yield
+        return
+    path = directory / 'worker-timing.json'
+    snapshot = json.loads(path.read_text()) if path.exists() else {'phases': {}}
+    snapshot.update(activePhase=phase, phaseStartedAt=time.time())
+    path.write_text(json.dumps(snapshot))
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        snapshot['phases'][phase] = round(time.monotonic() - start, 4)
+        snapshot.update(activePhase=None, updatedAt=time.time())
+        path.write_text(json.dumps(snapshot))
 
 
 def save_review(directory, original, enhanced, report, *, intermediate=False):
@@ -277,15 +298,18 @@ def main():
         return 1
     finally:
         if provider:
-            provider.close()
+            with record_worker_phase(directory, 'provider_close'):
+                provider.close()
         if detector:
-            detector.close()
+            with record_worker_phase(directory, 'landmark_close'):
+                detector.close()
         # Usage is saved by the provider even when parsing or comparison fails.
         # Refresh only its presentation; never replace a usable result with retry failure.
         if (directory is not None and original is not None and
                 (directory / 'result.json').exists() and (directory / 'api-usage.json').exists()):
             saved = json.loads((directory / 'result.json').read_text())
-            save_review(directory, original, enhanced, saved)
+            with record_worker_phase(directory, 'final_report'):
+                save_review(directory, original, enhanced, saved)
 
 
 if __name__ == '__main__':

@@ -81,6 +81,7 @@ def test_web_handlers_upload_and_static_routes_without_api_call(tmp_path, monkey
     monkeypatch.setattr(web_app, 'STATE_DB', tmp_path / 'access.sqlite3')
     monkeypatch.setattr(web_app, '_ACCESS_STORE', None)
     monkeypatch.setattr(web_app, 'JOB_PROCESSES', {})
+    monkeypatch.setattr(web_app, 'JOB_PHASES', {})
 
     class FakeProcess:
         def poll(self):
@@ -159,6 +160,7 @@ def test_public_upload_limit_uses_signed_cookie_before_starting_work(tmp_path, m
     monkeypatch.setattr(web_app, 'UPLOADS', tmp_path / 'uploads')
     monkeypatch.setattr(web_app, 'RUNS', tmp_path / 'runs')
     monkeypatch.setattr(web_app, 'JOB_PROCESSES', {})
+    monkeypatch.setattr(web_app, 'JOB_PHASES', {})
 
     class FakeProcess:
         def poll(self):
@@ -256,6 +258,7 @@ def test_guidance_endpoint_reuses_preview_and_prevents_duplicate_workers(tmp_pat
     monkeypatch.setattr(web_app, 'STATE_DB', tmp_path / 'state.sqlite3')
     monkeypatch.setattr(web_app, 'PUBLIC_MODE', False)
     monkeypatch.setattr(web_app, 'JOB_PROCESSES', {})
+    monkeypatch.setattr(web_app, 'JOB_PHASES', {})
     web_app.UPLOADS.mkdir()
     job_id = 'd' * 32
     directory = web_app.RUNS / job_id
@@ -279,6 +282,11 @@ def test_guidance_endpoint_reuses_preview_and_prevents_duplicate_workers(tmp_pat
         return handler.status, handler.body
     preview = web_app.public_job(job_id, directory)
     assert preview['steps'] == preview['callouts'] == preview['plannedGuides'] == []
+    # A published preview is ready even while generation closes its resources.
+    web_app.JOB_PROCESSES[job_id] = Process()
+    web_app.JOB_PHASES[job_id] = 'generation'
+    status, body = call('do_GET', f'/api/jobs/{job_id}')
+    assert status == 200 and body['status'] == 'preview_ready'
     for _ in range(2):
         status, body = call('do_POST', f'/api/jobs/{job_id}/guidance')
         assert status == 202

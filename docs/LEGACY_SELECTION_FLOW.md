@@ -1,3 +1,5 @@
+> Historical design record. Retired experiment commands and code described here were removed on 2026-10-07. Use [the current planning architecture](MODEL_PLANNING_FLOW.md) and [README](../README.md) for supported behavior.
+
 # Archived threshold/recipe selection (inactive)
 
 This section describes selection before `model_visual_reasoning_v1`. It is retained for historical offline replay, not used by the production provider.

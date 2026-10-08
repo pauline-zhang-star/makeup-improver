@@ -1,36 +1,9 @@
 import numpy as np
 import pytest
 from PIL import Image
-from makeup_refine.imaging import edit_canvas, scaled_edit_canvas
-from makeup_refine.look_mask import makeup_mask, lip_mask, complexion_mask, FACE_OVAL
+from makeup_refine.look_mask import makeup_mask, lip_mask
 from makeup_refine.look_models import MakeupStyle
-from test_pipeline import Detector
-
-
-@pytest.mark.parametrize('size', [(730,1024),(768,1024),(512,512),(256,1024)])
-def test_padding_is_valid_and_original_pixels_are_recoverable(size):
-    image = Image.fromarray(np.random.default_rng(2).integers(0,255,(size[1],size[0],3),dtype=np.uint8))
-    canvas, box = edit_canvas(image)
-    w,h = canvas.size
-    assert w%16 == h%16 == 0
-    assert 655360 <= w*h <= 8294400
-    assert max(w,h)/min(w,h) <= 3
-    assert np.array_equal(canvas.crop(box), image)
-    if size == (730,1024):
-        assert canvas.size == (736,1024)
-        assert box == (3,0,733,1024)
-
-
-@pytest.mark.parametrize('size', [(788,524), (730,1024), (768,1024)])
-def test_scaled_canvas_has_no_padded_border(size):
-    image = Image.new('RGB', size, (80, 90, 100))
-    canvas = scaled_edit_canvas(image)
-    assert canvas.width % 16 == canvas.height % 16 == 0
-    assert 655360 <= canvas.width * canvas.height <= 8294400
-    assert canvas.getpixel((0, 0)) == (80, 90, 100)
-    assert canvas.getpixel((canvas.width - 1, canvas.height - 1)) == (80, 90, 100)
-    if size == (788, 524):
-        assert canvas.size == (1008, 672)
+from flow_fixtures import Detector
 
 
 def test_cosmetic_mask_is_local():
@@ -52,21 +25,6 @@ def test_explicit_style_has_wider_mask_than_auto(style):
     assert np.count_nonzero(np.asarray(lip_mask(image.size, points, style))) > np.count_nonzero(
         np.asarray(lip_mask(image.size, points, MakeupStyle.AUTO)))
     assert selected[0, 0] == auto[0, 0] == 0
-
-
-def test_complexion_mask_feathers_within_face_without_nose_skin_holes():
-    size = (400, 400)
-    points = [(0.5, 0.5)] * 478
-    for index, angle in zip(FACE_OVAL, np.linspace(-np.pi / 2, 3 * np.pi / 2,
-                                                    len(FACE_OVAL), endpoint=False)):
-        points[index] = (.5 + .35 * np.cos(angle), .5 + .42 * np.sin(angle))
-    points[33], points[263] = (.37, .43), (.63, .43)
-    points[98], points[327] = (.45, .6), (.55, .6)
-    mask = np.asarray(complexion_mask(size, points))
-    assert mask[0, 0] == 0
-    assert mask[300, 200] > 0
-    assert mask[240, 180] > 0 and mask[240, 220] > 0
-    assert 0 < mask[200, 65] < mask[300, 200]
 
 
 def test_generation_region_retains_all_native_mask_pixels_without_rescaling():

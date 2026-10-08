@@ -5,10 +5,10 @@ import pytest
 
 from makeup_refine.check_cli import main
 from makeup_refine.imaging import load_image
-from makeup_refine.landmarks import INNER_LIPS, LIPS, LOWER_EYES, UPPER_EYES, make_mask, validate_face
+from makeup_refine.landmarks import INNER_LIPS, LOWER_EYES, UPPER_EYES, make_mask, validate_face
 from makeup_refine.models import SpikeError
 from makeup_refine.report import write_report
-from test_pipeline import Detector
+from flow_fixtures import Detector
 
 
 def feature_points():
@@ -96,7 +96,7 @@ def test_report_escapes_provider_text_and_stays_offline(tmp_path):
     image = Image.new("RGB", (512, 512), "gray")
     report = tmp_path / "review.html"
     write_report(report, image, masks={}, result=image,
-                 changes=[{"area": "lips", "instruction": '<script>alert("bad")</script>'}])
+                 look_result={"status": "completed", "steps": [{"area": "lips", "instruction": '<script>alert("bad")</script>', "before": "Before", "after": "After"}]})
     html = report.read_text()
     assert '<script>alert("bad")</script>' not in html
     assert "&lt;script&gt;" in html

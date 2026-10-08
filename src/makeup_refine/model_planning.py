@@ -1,6 +1,6 @@
 """Model chooses a cohesive look; local code validates only its bounded actions.
 
-Legacy aesthetic thresholds/recipes remain in technique_catalog for offline audits.
+Technique selection is model-designed and bounded by the current catalog.
 They are deliberately not used by this production planning path.
 """
 import json

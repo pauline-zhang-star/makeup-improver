@@ -7,7 +7,6 @@ from typing import Optional
 
 from PIL import Image
 from .imaging import to_srgb
-from .guidance_view import guidance_html
 from .look_view import look_steps_html, api_cost_html
 from .trial_view import trial_details_html
 from .look_annotations import after_annotations_html
@@ -20,7 +19,7 @@ def data_url(image: Image.Image) -> str:
 
 
 def write_report(path: Path, original: Image.Image, *, masks: dict[str, Image.Image],
-                 result: Optional[Image.Image] = None, changes: Optional[list[dict]] = None,
+                 result: Optional[Image.Image] = None,
                  outcome: str = "preflight", look_result: Optional[dict] = None) -> None:
     before = data_url(original)
     cards = []
@@ -46,7 +45,7 @@ alt="{after_alt}">{annotations}</div><span id="divider" data-divider></span></di
 <label for="position">{coverage_label} <output id="coverage" data-coverage>50%</output></label>
 <input id="position" type="range" min="0" max="100" value="50" aria-label="{coverage_label}">
 <div class="ends"><span>Original only</span><span>{end_label}</span></div></section>'''
-    instructions = look_steps_html(look_result) if look_result is not None else guidance_html(before, changes)
+    instructions = look_steps_html(look_result) if look_result is not None else ''
     html = '''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">

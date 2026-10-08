@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from makeup_refine.imaging import composite, prepare_edit_canvas
-from makeup_refine.look_alignment import ANCHORS, align_candidate, register_direct_candidate, STABLE_ANCHORS
+from makeup_refine.imaging import prepare_edit_canvas
+from makeup_refine.look_alignment import register_direct_candidate, STABLE_ANCHORS
 from makeup_refine.look_mask import makeup_mask
 from makeup_refine.models import SpikeError
-from test_pipeline import Detector
+from flow_fixtures import Detector
 
 
 class LandmarkSequence:
@@ -93,42 +93,6 @@ def test_valid_resolution_preserves_photo_pixels_inside_reversible_padding():
     assert np.array_equal(np.asarray(canvas.crop(box)), np.asarray(original))
     assert canvas_mask.getpixel((0, 500)) == 0
     assert canvas_mask.getpixel((4, 500)) == 255
-
-
-def test_affine_recomposition_is_aligned_before_masked_composite():
-    original = Image.new('RGB', (788, 524), (110, 120, 130))
-    reference = np.asarray(Detector().detect(original)[0], dtype=float)
-    # Match the observed class of failure: the model zoomed and moved the face.
-    found = reference * (1.2, 1.2) + (-.10, -.08)
-    candidate = Image.new('RGB', original.size, (210, 80, 100))
-    aligned, report = align_candidate(original, candidate, reference.tolist(),
-                                      LandmarkSequence(found.tolist()))
-    mask = makeup_mask(original.size, reference)
-    result = composite(original, aligned, mask)
-    assert report['affineCorrectionApplied'] is True
-    assert report['rawMaxLandmarkDeviation'] > .012
-    assert report['alignmentMaxResidual'] < 1e-10
-    assert np.array_equal(np.asarray(result)[np.asarray(mask) == 0],
-                          np.asarray(original)[np.asarray(mask) == 0])
-    assert np.any(np.asarray(result)[np.asarray(mask) > 0] !=
-                  np.asarray(original)[np.asarray(mask) > 0])
-
-
-def test_non_affine_face_change_is_not_repaired():
-    image = Image.new('RGB', (788, 524))
-    reference = np.asarray(Detector().detect(image)[0], dtype=float)
-    changed = reference.copy()
-    changed[list(ANCHORS[:4]), 0] += [.08, -.08, .08, -.08]
-    with pytest.raises(SpikeError, match='beyond safe alignment'):
-        align_candidate(image, image.copy(), reference.tolist(),
-                        LandmarkSequence(changed.tolist()))
-
-
-def test_aligned_candidate_does_not_hide_output_size_change():
-    image = Image.new('RGB', (788, 524))
-    points = Detector().detect(image)[0]
-    with pytest.raises(SpikeError, match='dimensions'):
-        align_candidate(image, image.resize((800, 528)), points, Detector())
 
 
 def test_nose_bridge_is_editable_without_circular_nose_skin_holes():

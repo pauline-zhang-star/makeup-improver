@@ -9,8 +9,7 @@ import pytest
 from pydantic import ValidationError
 from makeup_refine.cli import save_review
 from makeup_refine.look_models import LookComparison, MakeupStyle, LOOK_AREAS
-from makeup_refine.look_pipeline import (LookPipeline, _directional_cosmetic_transfer,
-                                         reconcile_guidance_with_plan)
+from makeup_refine.look_pipeline import LookPipeline, reconcile_guidance_with_plan
 from makeup_refine.technique_catalog import TechniquePlan
 from makeup_refine.look_prompts import enhancement_prompt
 from makeup_refine.models import SpikeError
@@ -18,7 +17,7 @@ from makeup_refine.quality import validate_facial_proportions, validate_protecte
 from makeup_refine.providers import OpenAIProvider, png
 from makeup_refine.imaging import edge_safe_composite
 from makeup_refine.look_composite import preserve_complexion_texture
-from test_pipeline import Detector, image
+from flow_fixtures import Detector, image
 
 
 def test_cached_direct_masks_keep_exact_pixels(image):
@@ -36,16 +35,6 @@ def test_cached_direct_masks_keep_exact_pixels(image):
         fresh = direct_edit_mask(image.size, points, MakeupStyle.KOREAN_SOFT, items)
         assert np.array_equal(np.asarray(cached), np.asarray(fresh))
         assert cache.mask_for(items) is cached
-
-
-@pytest.fixture(autouse=True)
-def stub_lip_solver_for_flow_tests(monkeypatch):
-    """These tests use random pixels, so lip image-quality gates are tested elsewhere."""
-    def compose(base, source, reference_points, candidate_points, old_lips):
-        from makeup_refine.imaging import composite
-        return composite(base, source, old_lips), {'qualityPassed': True,
-                                                  'after': {'marginPixels': 0}}
-    monkeypatch.setattr('makeup_refine.look_pipeline.blend_full_lips', compose)
 
 
 def step(area='lips', changed=True, confidence=.95):
@@ -371,19 +360,6 @@ def test_facial_base_allowed_while_background_stays_protected():
     edited.paste((200, 200, 200), (0, 0, 512, 40))
     with pytest.raises(SpikeError, match='outside the selected makeup regions'):
         validate_protected_pixels(original, edited, mask)
-
-
-def test_directional_transfer_keeps_only_the_requested_pigment_direction():
-    original = Image.new('RGB', (3, 1), (100, 100, 100))
-    candidate = Image.new('RGB', (3, 1))
-    candidate.putdata([(40, 40, 40), (160, 160, 160), (100, 100, 100)])
-    shape = Image.new('L', (3, 1), 255)
-    dark = _directional_cosmetic_transfer(original, candidate, original, shape, 'darken')
-    bright = _directional_cosmetic_transfer(original, candidate, original, shape, 'brighten')
-    assert dark.getpixel((0, 0)) == (40, 40, 40)
-    assert dark.getpixel((1, 0)) == (100, 100, 100)
-    assert bright.getpixel((0, 0)) == (100, 100, 100)
-    assert bright.getpixel((1, 0)) == (160, 160, 160)
 
 
 def test_explanation_failure_keeps_image_and_retry_never_regenerates(image):
@@ -719,34 +695,6 @@ def test_duplicate_area_cannot_replace_missing_lips():
         LookComparison(assessments=data, preservationIssues=[])
 
 
-def test_recompose_uses_no_editor_or_explainer_and_clears_old_guidance(image):
-    provider = Provider()
-    enhanced, result = LookPipeline(provider, provider, Detector()).recompose(image, image.copy())
-    assert not provider.calls
-    assert np.array_equal(enhanced, image)
-    assert result['imageEditCalls'] == result['comparisonCalls'] == 0
-    assert result['steps'] == [] and result['comparisonStatus'] == 'pending_new_comparison'
-    assert result['legacyFullStyleMaskFallback'] is True
-    assert result['lipBlendQuality']['qualityPassed']
-
-
-def test_recompose_uses_saved_selected_mask_and_only_selected_lip_transfer(image):
-    from makeup_refine.look_mask import direct_edit_mask
-    provider = Provider()
-    selected = [{'technique_id': 'eyeliner_05', 'region': 'eyeliner'}]
-    enhanced, result = LookPipeline(provider, provider, Detector()).recompose(
-        image, image.copy(), MakeupStyle.WORK, selected)
-    points = Detector().detect(image)[0]
-    expected = direct_edit_mask(image.size, points, MakeupStyle.WORK, selected)
-    assert np.array_equal(np.asarray(enhanced), np.asarray(image))
-    assert result['legacyFullStyleMaskFallback'] is False
-    assert result['maskCoverageFraction'] == pytest.approx(
-        float(np.mean(np.asarray(expected) > 0)))
-    assert result['faceBaseCoverageFraction'] == 0
-    assert result['lipTransferMode'] == 'unchanged'
-    assert result['alignment']
-
-
 def test_unplanned_global_edit_is_locked_to_original_outside_makeup_mask(image):
     provider = Provider()
     composites = []
@@ -936,26 +884,6 @@ def test_complexion_texture_restoration_keeps_fine_detail_inside_foundation_mask
     assert restored.getpixel((25, 25)) != restored.getpixel((25, 26))
 
 
-def test_recompose_cli_is_local_and_does_not_reuse_steps(tmp_path, image, monkeypatch):
-    from makeup_refine import recompose_cli
-    source, output = tmp_path / 'saved', tmp_path / 'new'
-    source.mkdir()
-    image.save(source / 'originalImage.png')
-    image.save(source / 'candidateImage.png')
-    (source / 'result.json').write_text(json.dumps({'requestedStyle': 'Auto', 'steps': [step()]}))
-    detector = Detector()
-    detector.close = lambda: None
-    monkeypatch.setattr(recompose_cli, 'MediaPipeLandmarks', lambda *args: detector)
-    monkeypatch.setattr('sys.argv', ['makeup-recompose', str(source), '--output', str(output),
-                                   '--landmark-model', 'unused'])
-    assert recompose_cli.main() == 0
-    result = json.loads((output / 'result.json').read_text())
-    assert result['steps'] == [] and result['imageEditCalls'] == result['comparisonCalls'] == 0
-    assert result['legacyFullStyleMaskFallback'] is True
-    assert (output / 'enhancedImage.png').exists() and (output / 'review.html').exists()
-    assert json.loads((source / 'result.json').read_text())['steps'] == [step()]
-
-
 @pytest.mark.parametrize('issue', ['mouth_state', 'teeth_visibility'])
 def test_mouth_preservation_issue_rejects_result(image, issue):
     provider = Provider(issues=[issue])
@@ -972,7 +900,6 @@ def test_mouth_state_constraints_in_generation_and_comparison_prompts():
     comparison = comparison_prompt()
     assert 'originally visible teeth disappear' in comparison
     assert 'mouth_state' in comparison and 'teeth_visibility' in comparison
-
 
 
 def test_input_detail_rejection_stops_before_any_paid_call(image, monkeypatch):
@@ -1030,3 +957,36 @@ def test_deferred_guidance_returns_checked_preview_without_comparison(image):
     explanation = LookPipeline(provider, provider, None).explain(image, enhanced, report['comparisonEvidence'])
     assert explanation['status'] == 'completed'
     assert [call[0] for call in provider.calls] == ['plan', 'enhance', 'explain']
+
+
+def test_selected_lip_pigment_is_protected_from_lighting_color_correction(image, monkeypatch):
+    from makeup_refine import look_pipeline
+    captured = []
+    actual = look_pipeline.edge_safe_composite
+    def composite(original, edited, mask, **kwargs):
+        pigment = kwargs.get('pigment_mask')
+        assert pigment is not None
+        captured.append(np.asarray(pigment))
+        return actual(original, edited, mask, **kwargs)
+    monkeypatch.setattr(look_pipeline, 'edge_safe_composite', composite)
+    provider = Provider()
+    LookPipeline(provider, provider, Detector(), defer_guidance=True).run(image)
+    assert captured and np.any(captured[0] > 0)
+
+
+@pytest.mark.parametrize('gap,protect', [(0.01, False), (0.12, True)])
+def test_lip_contact_seam_is_not_confused_with_open_mouth(gap, protect):
+    from makeup_refine.look_mask import mouth_interior_mask, lip_pigment_mask
+    from makeup_refine.landmarks import INNER_LIPS, LIPS
+    points = [(.5, .5)] * 478
+    for i, angle in zip(LIPS, np.linspace(0, 2*np.pi, len(LIPS), endpoint=False)):
+        points[i] = (.5 + .2*np.cos(angle), .5 + .1*np.sin(angle))
+    for i, angle in zip(INNER_LIPS, np.linspace(0, 2*np.pi, len(INNER_LIPS), endpoint=False)):
+        points[i] = (.5 + .17*np.cos(angle), .5 + gap/2*np.sin(angle))
+    points[61], points[291] = (.3, .5), (.7, .5)
+    points[13], points[14] = (.5, .5-gap/2), (.5, .5+gap/2)
+    points[33], points[263] = (.3, .3), (.7, .3)
+    mouth = mouth_interior_mask((400, 400), points)
+    lip = lip_pigment_mask((400, 400), points)
+    assert bool(mouth.getpixel((200, 200))) == protect
+    assert bool(lip.getpixel((200, 200))) != protect

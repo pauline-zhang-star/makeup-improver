@@ -10,64 +10,6 @@
     "unit_normalization_default": "IED",
     "id_reassignment_allowed": false
   },
-  "style_color_recipe_fallbacks": {
-    "Natural": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.005,
-        "delta_chroma": 0.015,
-        "delta_hue_degrees": 0.0
-      }
-    },
-    "Work / Polished": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.0,
-        "delta_chroma": 0.015,
-        "delta_hue_degrees": 0.0
-      }
-    },
-    "Korean Soft": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.01,
-        "delta_chroma": 0.025,
-        "delta_hue_degrees": 0.0
-      }
-    },
-    "Fresh": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.01,
-        "delta_chroma": 0.025,
-        "delta_hue_degrees": 0.0
-      }
-    },
-    "Date Night": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.0,
-        "delta_chroma": 0.035,
-        "delta_hue_degrees": 0.0
-      }
-    },
-    "Sophisticated": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.01,
-        "delta_chroma": 0.025,
-        "delta_hue_degrees": 0.0
-      }
-    },
-    "Soft Glam": {
-      "lips_01": {
-        "color_space": "OKLCH",
-        "delta_lightness": 0.005,
-        "delta_chroma": 0.03,
-        "delta_hue_degrees": 0.0
-      }
-    }
-  },
   "color_adjustment_caps": {
     "color_space": "OKLCH",
     "MAX_DELTA_L": 0.06,

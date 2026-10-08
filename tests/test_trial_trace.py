@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import json
-from io import BytesIO
 
 import httpx
 import pytest
@@ -112,7 +111,7 @@ def test_validation_audit_preserves_rejected_proposal_evidence():
 
 def test_quality_failure_records_skipped_checks(monkeypatch):
     from test_look_flow import Provider
-    from test_pipeline import Detector
+    from flow_fixtures import Detector
     from makeup_refine.look_pipeline import LookPipeline
     import numpy as np
     original = Image.fromarray(np.random.default_rng(7).integers(40, 180, (512, 512, 3), dtype=np.uint8))

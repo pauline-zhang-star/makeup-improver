@@ -4,7 +4,7 @@ from PIL import Image
 from makeup_refine.look_annotations import annotation_anchors, after_annotations_html, short_arrow
 from makeup_refine.look_view import look_steps_html
 from makeup_refine.report import write_report
-from test_pipeline import Detector
+from flow_fixtures import Detector
 
 
 def report(areas):

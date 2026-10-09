@@ -9,3 +9,12 @@ outputs/
 models/
 private-fixtures/
 .DS_Store
+
+# Xcode local builds and user state
+ios/build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Apple private signing keys
+*.p8

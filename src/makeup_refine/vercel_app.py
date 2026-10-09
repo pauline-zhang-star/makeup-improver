@@ -18,15 +18,17 @@ from PIL import Image, UnidentifiedImageError
 from .api_usage import no_provider_calls
 from .look_models import MakeupStyle
 from .redis_guard import RedisGuard
+from .subscriptions import SubscriptionService, SubscriptionError
 from .guidance_ticket import issue, verify, evidence_for_display, TTL
 from .upload_format import UPLOAD_SUFFIXES, validate_upload
-from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job
+from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job, ASSET_ROUTES
 
 
 MAX_REQUEST_BYTES = 4_100_000
 MAX_IMAGE_BYTES = 3_000_000
 MAX_RESULT_IMAGE_BYTES = 2_200_000
 _GUARD = None
+_SUBSCRIPTIONS = None
 
 
 def guard():
@@ -34,6 +36,13 @@ def guard():
     if _GUARD is None:
         _GUARD = RedisGuard.from_environment()
     return _GUARD
+
+
+def subscriptions():
+    global _SUBSCRIPTIONS
+    if _SUBSCRIPTIONS is None:
+        _SUBSCRIPTIONS = SubscriptionService.from_environment(guard())
+    return _SUBSCRIPTIONS
 
 
 def compact_jpeg(path, max_bytes=MAX_RESULT_IMAGE_BYTES):
@@ -164,7 +173,37 @@ class VercelHandler(WebHandler):
         self.respond(200, job, cookie=cookie)
 
     def visitor(self):
+        self.paid_identity = None
+        authorization = self.headers.get('Authorization')
+        if authorization or self.headers.get('X-Mirror-Client') == 'ios':
+            identity = subscriptions().authenticate(authorization)
+            self.paid_identity = identity
+            return 'subscription:' + identity, None
         return guard().visitor(self.headers.get('Cookie', ''))
+
+    def release_allowance(self, visitor, job_id):
+        if getattr(self, 'paid_identity', None):
+            return subscriptions().release(self.paid_identity, self.paid_request_id)
+        return guard().release(visitor, job_id)
+
+    def subscription_request(self, notification=False):
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if (self.headers.get('Content-Type', '').split(';')[0] != 'application/json'
+                    or not 0 < length <= 110_000):
+                raise SubscriptionError('Invalid subscription request.', 'INVALID_REQUEST', 400)
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict):
+                raise SubscriptionError('Invalid subscription request.', 'INVALID_REQUEST', 400)
+            result = (subscriptions().notification(body.get('signedPayload')) if notification
+                      else subscriptions().synchronize(body.get('signedTransaction')))
+            self.respond(200, result)
+        except SubscriptionError as exc:
+            self.respond(exc.status, {'error': str(exc), 'code': exc.code})
+        except (ValueError, TypeError):
+            self.respond(400, {'error': 'Invalid subscription request.'})
+        except Exception:
+            self.respond(503, {'error': 'Subscription verification is unavailable.'})
 
     def respond(self, status, data, content_type='application/json; charset=utf-8',
                 review=False, cookie=None):
@@ -189,18 +228,29 @@ class VercelHandler(WebHandler):
 
     def do_GET(self):
         path = self.path.split('?', 1)[0]
-        if path == '/health':
+        if path == '/api/subscription':
+            try:
+                identity = subscriptions().authenticate(self.headers.get('Authorization'))
+                self.respond(200, subscriptions().public(identity))
+            except SubscriptionError as exc:
+                self.respond(exc.status, {'error': str(exc), 'code': exc.code})
+            except Exception:
+                self.respond(503, {'error': 'Subscription service is unavailable.'})
+        elif path == '/health':
             self.respond(200, {'ok': True})
         elif path == '/api/quota':
             try:
                 visitor, cookie = self.visitor()
+                if getattr(self, 'paid_identity', None):
+                    self.respond(200, subscriptions().public(self.paid_identity))
+                    return
                 self.respond(200, {'limited': True, 'mode': 'serverless',
                                    'dailyLimit': guard().daily_limit,
                                    **guard().remaining(visitor)}, cookie=cookie)
             except Exception:
                 self.respond(503, {'error': 'Usage limit service is unavailable.'})
-        elif path in ('/', '/app.js', '/style.css'):
-            name = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}[path]
+        elif path in ASSET_ROUTES:
+            name = ASSET_ROUTES[path]
             cookie = None
             if path == '/':
                 try:
@@ -214,6 +264,9 @@ class VercelHandler(WebHandler):
 
     def do_POST(self):
         started_at = time.perf_counter()
+        if self.path in ('/api/subscription/sync', '/api/apple/notifications'):
+            self.subscription_request(notification=self.path == '/api/apple/notifications')
+            return
         if self.path == '/api/guidance':
             self.generate_guidance()
             return
@@ -222,6 +275,9 @@ class VercelHandler(WebHandler):
             return
         try:
             visitor, cookie = self.visitor()
+        except SubscriptionError as exc:
+            self.respond(exc.status, {'error': str(exc), 'code': exc.code})
+            return
         except Exception:
             self.respond(503, {'error': 'Usage limit service is unavailable.'})
             return
@@ -255,7 +311,15 @@ class VercelHandler(WebHandler):
             return
         job_id = uuid.uuid4().hex
         try:
-            reason = guard().reserve(visitor, job_id)
+            if getattr(self, 'paid_identity', None):
+                self.paid_request_id = subscriptions().reserve(
+                    self.paid_identity, self.headers.get('Idempotency-Key'))
+                reason = None
+            else:
+                reason = guard().reserve(visitor, job_id)
+        except SubscriptionError as exc:
+            self.respond(exc.status, {'error': str(exc), 'code': exc.code}, cookie=cookie)
+            return
         except Exception:
             self.respond(503, {'error': 'Usage limit service is unavailable.'}, cookie=cookie)
             return
@@ -286,14 +350,14 @@ class VercelHandler(WebHandler):
                                            stdin=subprocess.DEVNULL, capture_output=True,
                                            timeout=270, check=False)
             except OSError:
-                guard().release(visitor, job_id)
+                self.release_allowance(visitor, job_id)
                 self.respond(503, {'error': 'Could not start image generation.'}, cookie=cookie)
                 return
             except subprocess.TimeoutExpired:
                 diagnostics = timeout_metadata(output)
                 refunded = no_provider_calls(output)
                 if refunded:
-                    guard().release(visitor, job_id)
+                    self.release_allowance(visitor, job_id)
                 size = diagnostics['workingSize'] or ['?', '?']
                 detail = (f"{diagnostics['stage']}:{diagnostics['providerCallsStarted']}:"
                           f"{'api_active' if diagnostics['apiRequestActive'] else 'local'}:"
@@ -323,7 +387,7 @@ class VercelHandler(WebHandler):
 
             result_file = output / 'result.json'
             if no_provider_calls(output):
-                guard().release(visitor, job_id)
+                self.release_allowance(visitor, job_id)
             if not result_file.is_file():
                 # No report means failure happened before a provider was created.
                 # Native MediaPipe errors are otherwise lost with the /tmp worker.
@@ -405,6 +469,8 @@ class VercelHandler(WebHandler):
                     saved = {k: v for k, v in job.items() if k not in ('originalUrl', 'afterUrl')}
                     guard().command('SET', cache_key, json.dumps(saved), 'EX', TTL)
                 self.respond(200, job, cookie=cookie)
+        except SubscriptionError as exc:
+            self.respond(exc.status, {'error': str(exc), 'code': exc.code}, cookie=cookie)
         except (ValueError, binascii.Error, UnidentifiedImageError) as exc:
             self.respond(400, {'error': str(exc)}, cookie=cookie)
         except Exception:

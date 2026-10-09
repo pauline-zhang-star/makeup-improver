@@ -405,3 +405,39 @@ def test_preview_response_ticket_matches_first_visit_cookie(tmp_path, monkeypatc
     assert ticket['id'] == job['id']
     assert job['steps'] == job['callouts'] == job['plannedGuides'] == []
     assert len(payload) < 4_100_000
+
+
+def test_native_subscription_missing_auth_cannot_fall_back_to_free_quota(monkeypatch):
+    from makeup_refine.subscriptions import SubscriptionError
+    service = type('Service', (), {'authenticate': lambda self, token:
+                    (_ for _ in ()).throw(SubscriptionError('Login required', 'SUBSCRIPTION_REQUIRED', 401))})()
+    monkeypatch.setattr(vercel_app, '_SUBSCRIPTIONS', service)
+    store = FakeGuard()
+    monkeypatch.setattr(vercel_app, '_GUARD', store)
+    handler = object.__new__(vercel_app.VercelHandler)
+    handler.headers = {'X-Mirror-Client': 'ios'}
+    with pytest.raises(SubscriptionError):
+        handler.visitor()
+    assert store.reservations == 0
+
+
+def test_subscription_sync_and_notification_routes(monkeypatch):
+    class Service:
+        def synchronize(self, signed):
+            assert signed == 'apple-proof'
+            return {'active': True, 'dailyLimit': 2, 'token': 'session'}
+        def notification(self, signed):
+            assert signed == 'apple-event'
+            return {'ok': True}
+    monkeypatch.setattr(vercel_app, '_SUBSCRIPTIONS', Service())
+    status, body, _ = request('do_POST', '/api/subscription/sync',
+                             json.dumps({'signedTransaction': 'apple-proof'}).encode())
+    assert status == 200 and json.loads(body)['dailyLimit'] == 2
+    status, body, _ = request('do_POST', '/api/apple/notifications',
+                             json.dumps({'signedPayload': 'apple-event'}).encode())
+    assert status == 200 and json.loads(body)['ok']
+
+
+def test_privacy_policy_is_served_without_subscription(monkeypatch):
+    status, body, _ = request('do_GET', '/privacy')
+    assert status == 200 and b'Mirror Privacy Policy' in body

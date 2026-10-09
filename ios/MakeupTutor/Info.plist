@@ -7,7 +7,8 @@
 <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>3</string>
+<key>NSCameraUsageDescription</key><string>Mirror uses the camera only when you choose to take a selfie for makeup previews. Mirror 仅在你选择拍摄自拍时使用相机，用于妆容预览。</string>
 <key>LSRequiresIPhoneOS</key><true/>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>

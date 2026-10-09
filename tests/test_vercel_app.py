@@ -55,11 +55,12 @@ class FakeGuard(SignedVisitors):
         self.events.append((name, job_id, detail))
 
 
-def request(method, path, body=b'', cookie=''):
+def request(method, path, body=b'', cookie='', extra_headers=None):
     handler = object.__new__(vercel_app.VercelHandler)
     handler.path = path
     handler.headers = {'Content-Length': str(len(body)), 'Content-Type': 'application/json',
                        'Cookie': cookie}
+    handler.headers.update(extra_headers or {})
     handler.rfile = BytesIO(body)
     handler.wfile = BytesIO()
     headers = {}
@@ -440,4 +441,28 @@ def test_subscription_sync_and_notification_routes(monkeypatch):
 
 def test_privacy_policy_is_served_without_subscription(monkeypatch):
     status, body, _ = request('do_GET', '/privacy')
-    assert status == 200 and b'Mirror Privacy Policy' in body
+    assert status == 200 and b'Privacy Policy' in body
+    status, css, headers = request('do_GET', '/privacy.css')
+    assert status == 200 and headers['Content-Type'].startswith('text/css')
+
+
+def test_beta_routes_do_not_require_apple_configuration(monkeypatch):
+    import hashlib
+    from test_subscriptions import Store
+    store = Store()
+    code = 'only-for-local-test-abcdefghijklmnop'
+    monkeypatch.setenv('MAKEUP_TEST_CODE_SHA256', hashlib.sha256(code.encode()).hexdigest())
+    monkeypatch.setattr(vercel_app, '_GUARD', store)
+    monkeypatch.setattr(vercel_app, 'subscriptions', lambda: (_ for _ in ()).throw(AssertionError('Apple must not be called')))
+    status, payload, _ = request('do_POST', '/api/test-access/redeem', json.dumps({'code': code}).encode())
+    assert status == 200
+    token = json.loads(payload)['sessionToken']
+    status, payload, _ = request('do_GET', '/api/test-access', extra_headers={'Authorization': 'Bearer '+token})
+    assert status == 200 and json.loads(payload)['remaining'] == 10
+    h = object.__new__(vercel_app.VercelHandler)
+    h.headers = {'Authorization': 'Bearer '+token, 'X-Mirror-Client': 'ios'}
+    visitor, cookie = h.visitor()
+    assert visitor.startswith('beta:') and cookie is None and h.paid_identity is None
+    monkeypatch.delenv('MAKEUP_TEST_CODE_SHA256')
+    status, _, _ = request('do_GET', '/api/test-access', extra_headers={'Authorization': 'Bearer '+token})
+    assert status == 403

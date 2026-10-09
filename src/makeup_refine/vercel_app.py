@@ -19,6 +19,7 @@ from .api_usage import no_provider_calls
 from .look_models import MakeupStyle
 from .redis_guard import RedisGuard
 from .subscriptions import SubscriptionService, SubscriptionError
+from .test_access import TestAccess
 from .guidance_ticket import issue, verify, evidence_for_display, TTL
 from .upload_format import UPLOAD_SUFFIXES, validate_upload
 from .web_app import ASSETS, MIME, ROOT, WebHandler, public_job, ASSET_ROUTES
@@ -174,7 +175,11 @@ class VercelHandler(WebHandler):
 
     def visitor(self):
         self.paid_identity = None
+        self.test_identity = None
         authorization = self.headers.get('Authorization')
+        if authorization and authorization.startswith('Bearer mt1.'):
+            self.test_identity = TestAccess(guard()).authenticate(authorization)
+            return 'beta:' + self.test_identity, None
         if authorization or self.headers.get('X-Mirror-Client') == 'ios':
             identity = subscriptions().authenticate(authorization)
             self.paid_identity = identity
@@ -182,6 +187,8 @@ class VercelHandler(WebHandler):
         return guard().visitor(self.headers.get('Cookie', ''))
 
     def release_allowance(self, visitor, job_id):
+        if getattr(self, 'test_identity', None):
+            return TestAccess(guard()).release(self.test_identity, self.paid_request_id)
         if getattr(self, 'paid_identity', None):
             return subscriptions().release(self.paid_identity, self.paid_request_id)
         return guard().release(visitor, job_id)
@@ -228,7 +235,15 @@ class VercelHandler(WebHandler):
 
     def do_GET(self):
         path = self.path.split('?', 1)[0]
-        if path == '/api/subscription':
+        if path == '/api/test-access':
+            try:
+                identity = TestAccess(guard()).authenticate(self.headers.get('Authorization'))
+                self.respond(200, TestAccess(guard()).public(identity))
+            except SubscriptionError as exc:
+                self.respond(exc.status, {'error': str(exc), 'code': exc.code})
+            except Exception:
+                self.respond(503, {'error': 'Test access unavailable.'})
+        elif path == '/api/subscription':
             try:
                 identity = subscriptions().authenticate(self.headers.get('Authorization'))
                 self.respond(200, subscriptions().public(identity))
@@ -264,6 +279,19 @@ class VercelHandler(WebHandler):
 
     def do_POST(self):
         started_at = time.perf_counter()
+        if self.path == '/api/test-access/redeem':
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 512: raise ValueError()
+                body = json.loads(self.rfile.read(length))
+                self.respond(200, TestAccess(guard()).redeem(body.get('code')))
+            except SubscriptionError as exc:
+                self.respond(exc.status, {'error': str(exc), 'code': exc.code})
+            except (ValueError, TypeError, AttributeError):
+                self.respond(400, {'error': 'Invalid test request.'})
+            except Exception:
+                self.respond(503, {'error': 'Test access unavailable.'})
+            return
         if self.path in ('/api/subscription/sync', '/api/apple/notifications'):
             self.subscription_request(notification=self.path == '/api/apple/notifications')
             return
@@ -311,7 +339,10 @@ class VercelHandler(WebHandler):
             return
         job_id = uuid.uuid4().hex
         try:
-            if getattr(self, 'paid_identity', None):
+            if getattr(self, 'test_identity', None):
+                self.paid_request_id = TestAccess(guard()).reserve(self.test_identity, self.headers.get('Idempotency-Key'))
+                reason = None
+            elif getattr(self, 'paid_identity', None):
                 self.paid_request_id = subscriptions().reserve(
                     self.paid_identity, self.headers.get('Idempotency-Key'))
                 reason = None

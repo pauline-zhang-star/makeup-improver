@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 @main
 struct MakeupTutorApp: App {
@@ -168,6 +169,8 @@ struct TutorView: View {
     @State private var style = "Auto"
     @AppStorage("photoProcessingConsent.mirrorOpenAI.makeup.v1") private var consent = false
     @State private var privacy = false
+    @State private var camera = false
+    @State private var cameraPermission = false
     private let endpoint = Bundle.main.object(forInfoDictionaryKey: "MakeupBackendURL") as? String ?? ""
     private let styles = ["Auto", "Natural", "Work / Polished", "Korean Soft", "Fresh", "Date Night", "Sophisticated", "Soft Glam"]
     private let styleZH = ["自动匹配", "自然清透", "通勤精致", "韩系柔和", "元气清新", "约会夜妆", "知性高级", "柔和华丽"]
@@ -200,6 +203,22 @@ struct TutorView: View {
             }
             .background(Studio.paper).foregroundStyle(Studio.ink).tint(Studio.rose)
             .toolbar(.hidden, for: .navigationBar)
+            .fullScreenCover(isPresented: $camera) {
+                CameraCapture { image in
+                    camera = false
+                    guard let image else { return }
+                    do {
+                        guard let data = image.jpegData(compressionQuality: 0.95) else { throw Failure("无法读取照片 / Could not read photo") }
+                        try model.select(data)
+                    } catch { model.error = error.localizedDescription }
+                }.ignoresSafeArea()
+            }
+            .alert(text("请允许使用相机", "Camera access is needed"), isPresented: $cameraPermission) {
+                Button(text("打开设置", "Open Settings")) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+                Button(text("取消", "Cancel"), role: .cancel) {}
+            } message: { Text(text("在设置中允许 Mirror 使用相机，或从相册选择照片。", "Allow camera access in Settings, or choose a photo from your library.")) }
             .sheet(isPresented: $privacy) { privacySheet }
             .sheet(isPresented: $membership) { MembershipView(subscriptions: subscriptions, chinese: chinese) }
             .task { await subscriptions.load() }
@@ -242,6 +261,21 @@ struct TutorView: View {
                     catch { model.error = error.localizedDescription }
                 }
             }
+            }
+        }
+    }
+    private func takePhoto() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            model.error = text("此设备没有可用相机，请从相册选择照片。", "Camera unavailable on this device. Choose a library photo.")
+            return
+        }
+        Task { @MainActor in
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized: camera = true
+            case .notDetermined:
+                if await AVCaptureDevice.requestAccess(for: .video) { camera = true }
+                else { cameraPermission = true }
+            default: cameraPermission = true
             }
         }
     }
@@ -345,6 +379,18 @@ struct TutorView: View {
                 }
             }.clipShape(RoundedRectangle(cornerRadius: 22))
                 .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(Studio.ink.opacity(0.08), lineWidth: 1) }
+            HStack(spacing: 12) {
+                Button(action: takePhoto) {
+                    Label(text("拍摄自拍", "Take a selfie"), systemImage: "camera")
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Studio.rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
+                }
+                PhotosPicker(selection: $selection, matching: .images) {
+                    Label(text("从相册选择", "Photo library"), systemImage: "photo")
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }.font(.system(size: 13)).buttonStyle(.plain).disabled(model.busy || model.guidanceBusy)
             if model.result == nil && !model.busy {
                 Text(text("正面、均匀光线，眉眼和嘴唇清楚可见。", "Face the camera in even light, with brows, eyes and lips visible.")).font(.system(size: 11)).foregroundStyle(Studio.muted)
             }
@@ -546,6 +592,30 @@ struct Comparison: View {
                 Image(systemName: "hand.draw").font(.system(size: 12))
                 Text(chinese ? "左右滑动看变化 · 编号对应下方步骤" : "Slide to compare · Numbers match the steps below")
             }.font(.system(size: 11)).foregroundStyle(Studio.muted).frame(maxWidth: .infinity).padding(13).background(Studio.paper)
+        }
+    }
+}
+
+
+/// System front-facing still camera. Captures stay in memory; never auto-save to the library.
+struct CameraCapture: UIViewControllerRepresentable {
+    let completion: (UIImage?) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        if UIImagePickerController.isCameraDeviceAvailable(.front) { picker.cameraDevice = .front }
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let completion: (UIImage?) -> Void
+        init(completion: @escaping (UIImage?) -> Void) { self.completion = completion }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { completion(nil) }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            completion(info[.originalImage] as? UIImage)
         }
     }
 }

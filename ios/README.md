@@ -13,7 +13,7 @@ The production HTTPS URL is configured in `MakeupTutor/Info.plist`. There is no 
 
 ## Behavior
 
-- Native system photo picker; no full photo-library permission or login required. Taking a new photo directly in the app is not implemented yet.
+- Native system photo picker; no full photo-library permission or login required. Front-facing camera capture is available with permission; denied permission offers Settings, and devices without a camera retain library selection. Captures are not auto-saved or uploaded.
 - English and Chinese interface and saved instructions; older results fall back to English.
 - Corrects image orientation by redrawing, proportionally reduces the longest edge to 1536, and JPEG-encodes below 2.4 MB before base64 upload.
 - Uses the existing JSON `POST /api/generate` endpoint and Apple-verified subscription sessions and server-enforced daily quotas. No automatic retries of chargeable requests.
@@ -59,3 +59,15 @@ Launch in the simulator with `--mirror-ui-fixture completed`, `--mirror-ui-fixtu
 Photo processing consent is saved on-device in a versioned UserDefaults key scoped to Mirror/OpenAI makeup processing. Choosing a new photo and restarting the app do not reset it. Users can withdraw consent from Privacy (or beside Generate); future generation is then disabled until consent is granted again. Change the key/version and consent text if the processing purpose or recipients change.
 
 The arrow overlay shares the generated-image reveal mask, so annotations never appear over the original. After selecting a photo, a fixed bottom bar offers style selection and generation from the retained original. Photo-picker selection is reset after loading, allowing the same library asset to be selected again and clearing the previous result.
+
+## TestFlight build 2
+
+Adds permission-controlled selfie camera capture and explicit App Store loading/retry states. The membership page always offers a primary action: purchase when the selected product is available, or retry when unavailable. Management is shown only with an active entitlement; restore remains available for reinstalls and other devices. Apple standard terms are labeled explicitly.
+
+On October 9, App Store Connect Business showed Paid Apps Agreement as `New`, with a requirement to update legal entity information before signing. This blocks sandbox product availability and must be resolved by the account holder. Check all six products' IDs, prices and localizations if products still do not load after the agreement is active. See Apple's TN3186. This is separate from the backend Apple private-key configuration.
+
+Device QA still required: grant/deny camera permission, return from Settings, cancel capture, retake/confirm, replace an existing comparison, library selection, network failure and retry, and real Sandbox purchase after commerce setup. Simulator builds do not validate actual camera capture or Apple product availability.
+
+## TestFlight build 3: invited testing
+
+A developer-provided test code grants ten shared generation attempts for seven days from first redemption, without Apple purchases. No code or signing secret is embedded in the app. Configure only its SHA-256 digest in `MAKEUP_TEST_CODE_SHA256` on the backend. Empty/remove that variable before public release to disable redemption and existing test sessions. Reinstalling, restoring, changing devices or redeeming again does not reset usage or expiry. Pre-provider rejections refund an attempt; provider-started attempts count. Guidance is included. Tokens are purpose-scoped, signed, and stored in Keychain. Tests remain independent from Apple subscriptions and do not validate StoreKit purchases.

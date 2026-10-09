@@ -68,6 +68,7 @@ final class SubscriptionModel: ObservableObject {
     private(set) var sessionToken: String?
     private let endpoint: URL?
     private var updates: Task<Void, Never>?
+    private var loadID: UUID?
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 45
@@ -95,10 +96,22 @@ final class SubscriptionModel: ObservableObject {
 
     func load() async {
         guard !loading else { return }
-        loading = true; error = nil
-        defer { loading = false }
+        let id = UUID()
+        loadID = id; loading = true; error = nil
+        let deadline = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            guard let self, self.loadID == id else { return }
+            self.loadID = nil; self.loading = false
+            self.error = "连接 App Store 超时，请检查网络后重试 / App Store connection timed out. Check your connection and retry."
+        }
+        defer {
+            deadline.cancel()
+            if loadID == id { loading = false; loadID = nil }
+        }
         do {
-            products = try await Product.products(for: MirrorPlan.productIDs)
+            let fetched = try await Product.products(for: MirrorPlan.productIDs)
+            guard loadID == id else { return }
+            products = fetched
             eligible = []
             for product in products {
                 if let subscription = product.subscription,
@@ -112,11 +125,30 @@ final class SubscriptionModel: ObservableObject {
             if products.count != MirrorPlan.productIDs.count {
                 error = "部分订阅暂不可用，请稍后重试 / Some plans are unavailable. Please retry later."
             }
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            guard loadID == id else { return }
+            self.error = error.localizedDescription
+        }
+        guard loadID == id else { return }
+        deadline.cancel(); loading = false; loadID = nil
         await refresh()
     }
 
     func refresh() async {
+        if let beta = PurchaseStorage.read("betaSession"), !beta.isEmpty {
+            do {
+                guard let endpoint else { throw Failure("测试服务未配置 / Test service unavailable") }
+                var request = URLRequest(url: endpoint.appendingPathComponent("api/test-access"))
+                request.setValue("Bearer " + beta, forHTTPHeaderField: "Authorization")
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    throw Failure((try? JSONDecoder().decode(ServerError.self, from: data).error) ?? "测试权限暂不可用 / Test access unavailable")
+                }
+                access = try JSONDecoder().decode(SubscriptionAccess.self, from: data)
+                sessionToken = beta
+            } catch { access = nil; sessionToken = nil; self.error = error.localizedDescription }
+            return
+        }
         do {
             var newest: VerificationResult<StoreKit.Transaction>?
             var latest = Date.distantPast
@@ -212,6 +244,35 @@ final class SubscriptionModel: ObservableObject {
         } catch { self.error = error.localizedDescription }
     }
 
+    func redeemTestCode(_ code: String) async {
+        guard !purchasing else { return }
+        purchasing = true; error = nil; notice = nil
+        defer { purchasing = false }
+        do {
+            guard let endpoint, endpoint.scheme == "https" else { throw Failure("测试服务未配置 / Test service unavailable") }
+            var request = URLRequest(url: endpoint.appendingPathComponent("api/test-access/redeem"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code.trimmingCharacters(in: .whitespacesAndNewlines)])
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw Failure((try? JSONDecoder().decode(ServerError.self, from: data).error) ?? "测试码暂不可用 / Test code unavailable")
+            }
+            let value = try JSONDecoder().decode(SubscriptionAccess.self, from: data)
+            guard let token = value.sessionToken else { throw Failure("测试响应无效 / Invalid test response") }
+            try PurchaseStorage.write("betaSession", token)
+            access = value; sessionToken = token
+            notice = "测试权限已开启：七天内共十次生成 / Test access enabled: ten attempts over seven days"
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func leaveTestAccess() async {
+        do { try PurchaseStorage.write("betaSession", "") }
+        catch { self.error = error.localizedDescription; return }
+        access = nil; sessionToken = nil
+        await refresh()
+    }
+
     func authorizeGeneration() async -> String? {
         await refresh()
         guard let access, access.active, access.remaining > 0, let sessionToken else { return nil }
@@ -226,6 +287,7 @@ struct MembershipView: View {
     @State private var weekly = false
     @State private var selected = "basic"
     @State private var manage = false
+    @State private var testCode = ""
     private let rose = Color(red: 0.58, green: 0.28, blue: 0.33)
     private func text(_ zh: String, _ en: String) -> String { chinese ? zh : en }
     private var product: Product? {
@@ -264,11 +326,16 @@ struct MembershipView: View {
                         }.buttonStyle(.plain).disabled(subscriptions.purchasing)
                     }
                     if let access = subscriptions.access {
+                        if access.environment == "BetaTest" {
+                            Text(text("测试权限剩余 \(access.remaining)／10 次 · 七天总额度，不按日重置", "Test access: \(access.remaining) of 10 attempts remaining · Seven-day total, no daily reset"))
+                                .font(.headline).foregroundStyle(rose)
+                        } else {
                         Text(access.active
                              ? text("今天剩余 \(access.remaining)／\(access.dailyLimit) 次", "\(access.remaining) of \(access.dailyLimit) generations remaining today")
                              : text("当前没有有效订阅", "No active subscription"))
+                        }
                         if let reset = ISO8601DateFormatter().date(from: access.resetAt) {
-                            Text(text("下次额度重置：", "Allowance resets: ") + reset.formatted(date: .abbreviated, time: .shortened))
+                            Text(access.environment == "BetaTest" ? text("测试权限到期：", "Test access expires: ") : text("下次额度重置：", "Allowance resets: ") + reset.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -287,8 +354,39 @@ struct MembershipView: View {
                             }.padding(18).foregroundStyle(.white).background(rose, in: RoundedRectangle(cornerRadius: 16))
                         }.disabled(subscriptions.purchasing || subscriptions.loading)
                     } else {
-                        Text(text("订阅正在加载或暂不可用", "Plans are loading or unavailable")).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 12) {
+                            if subscriptions.loading {
+                                ProgressView(text("正在从 App Store 获取套餐…", "Loading plans from the App Store…"))
+                            } else {
+                                Label(text("暂时无法获取此套餐", "This plan is unavailable"), systemImage: "exclamationmark.circle")
+                                    .font(.headline)
+                                Text(text("未发生购买或扣费。请检查网络后重试，也可以切换计费周期查看其他套餐。", "No purchase or charge has occurred. Check your connection and retry, or check the other billing period."))
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Button { Task { await subscriptions.load() } } label: {
+                                Text(text(subscriptions.loading ? "正在加载套餐…" : "重新加载套餐", subscriptions.loading ? "Loading plans…" : "Retry loading plans"))
+                                    .frame(maxWidth: .infinity).padding(16)
+                                    .background(rose, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
+                            }.disabled(subscriptions.loading || subscriptions.purchasing)
+                        }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
                     }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(text("受邀测试", "Invited testing")).font(.headline)
+                        Text(text("输入开发者提供的测试码，无需购买即可测试。此码七天内总共十次生成，所有使用者共享，不会自动续费。", "Enter your developer-provided code to test without purchasing. The code grants ten shared attempts over seven days, with no renewal."))
+                            .font(.caption).foregroundStyle(.secondary)
+                        SecureField(text("测试码", "Test code"), text: $testCode)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        Button {
+                            Task { await subscriptions.redeemTestCode(testCode); if subscriptions.access?.environment == "BetaTest" { testCode = ""; dismiss() } }
+                        } label: {
+                            Text(text("开启测试权限", "Activate test access"))
+                                .frame(maxWidth: .infinity).padding(14)
+                                .background(rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
+                        }.disabled(testCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || subscriptions.purchasing)
+                        if PurchaseStorage.read("betaSession")?.isEmpty == false {
+                            Button(text("退出测试权限", "Leave test access")) { Task { await subscriptions.leaveTestAccess() } }
+                        }
+                    }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
                     Text(text("开始 AI 处理后会扣一次额度，即使结果失败；处理前拒绝的照片不扣次数。每天额度按 UTC 零点重置，未用次数不累积。化妆指导不另外扣生成次数。符合资格的月订阅用户可试用三天；周订阅无试用。同一订阅组仅一次首次优惠。", "Once AI processing starts, the attempt uses an allowance even if it fails. Photos rejected before processing do not count. Daily allowances reset at midnight UTC and do not roll over. Guidance uses no extra generation. Eligible monthly subscribers get 3 days free; weekly plans have no trial. One introductory offer per subscription group."))
                         .font(.caption).foregroundStyle(.secondary)
                     if let error = subscriptions.error { Text(error).font(.caption).foregroundStyle(rose) }
@@ -296,12 +394,16 @@ struct MembershipView: View {
                     HStack {
                         Button(text("恢复购买", "Restore Purchases")) { Task { await subscriptions.restore() } }
                         Spacer()
-                        Button(text("管理订阅", "Manage")) { manage = true }
+                        if subscriptions.access?.active == true && subscriptions.access?.environment != "BetaTest" {
+                            Button(text("管理订阅", "Manage Subscription")) { manage = true }
+                        }
                     }.font(.subheadline).disabled(subscriptions.purchasing)
+                    Text(text("已购买但换了设备或重新安装？点「恢复购买」，不会再次收费。", "Already purchased on another device or reinstalled? Restore Purchases restores access without a new charge."))
+                        .font(.caption).foregroundStyle(.secondary)
                     HStack {
                         Link(text("隐私政策", "Privacy Policy"), destination: URL(string: "https://mirror-makeup.vercel.app/privacy")!)
                         Spacer()
-                        Link(text("使用条款", "Terms of Use"), destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                        Link(text("Apple 标准使用条款", "Apple Standard Terms"), destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
                     }.font(.caption)
                 }.padding(24)
             }.background(Color(red: 0.98, green: 0.97, blue: 0.94)).tint(rose)

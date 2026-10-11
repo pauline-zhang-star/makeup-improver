@@ -177,7 +177,8 @@ def main():
                 evidence = build_comparison_evidence(original, enhanced, points,
                     report.get('requestedStyle', 'Auto'), report.get('techniquePlan', {}).get('selected', []))
                 report['comparisonEvidence'] = evidence
-            report.update(LookPipeline(provider, provider, None).explain(original, enhanced, evidence=evidence))
+            report.update(LookPipeline(provider, provider, None).explain(original, enhanced, evidence=evidence,
+                styling_context=report.get('stylingContext', {})))
             if report.get('minimumDistinctRegionsTarget') or report.get('techniquePlan'):
                 selected = report.get('techniquePlan', {}).get('selected', [])
                 if report.get('generationMode') == 'direct_api_result':

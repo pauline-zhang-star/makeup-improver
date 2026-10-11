@@ -76,7 +76,7 @@ final class TutorModel: ObservableObject {
             previewWaitSeconds = Date().timeIntervalSince(startedAt ?? Date())
         } catch { self.error = error.localizedDescription }
     }
-    func like(endpoint: String, subscriptionToken: String?) async {
+    func like(endpoint: String, subscriptionToken: String?, weather: [String: Any]? = nil) async {
         #if DEBUG
         if result?.id == "local-ui-fixture" {
             let payload: [String: Any] = ["id": "local-ui-fixture", "status": "completed", "steps": [["area": "lips", "instruction": "Blend the lip color inward.", "instruction_zh": "先勾勒唇形，再将唇色向内轻轻晕染。"]], "callouts": [["number": 1, "area": "lips", "label": [0.18, 0.5], "end": [0.38, 0.58], "source": "observed"]]]
@@ -97,7 +97,9 @@ final class TutorModel: ObservableObject {
             guard let subscriptionToken else { throw Failure("请刷新订阅状态 / Please refresh your subscription") }
             request.setValue("Bearer " + subscriptionToken, forHTTPHeaderField: "Authorization")
             request.setValue("ios", forHTTPHeaderField: "X-Mirror-Client")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["guidanceToken": token, "originalUrl": beforeURL, "afterUrl": afterURL])
+            var payload: [String: Any] = ["guidanceToken": token, "originalUrl": beforeURL, "afterUrl": afterURL]
+            if let weather { payload["weather"] = weather }
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw Failure("服务器响应无效 / Invalid response") }
             guard (200..<300).contains(http.statusCode) else {
@@ -131,9 +133,13 @@ final class TutorModel: ObservableObject {
             photo = sample(false)
             if status == "progress" { busy = true; startedAt = Date(); return }
             before = sample(false); after = sample(true)
-            let payload: [String: Any] = ["id": "local-ui-fixture", "status": status, "diagnostic": status == "rejected",
+            var payload: [String: Any] = ["id": "local-ui-fixture", "status": status, "diagnostic": status == "rejected",
                 "callouts": [["number": 1, "area": "lips", "label": [0.18, 0.5], "end": [0.38, 0.58], "source": "observed"]],
                 "steps": status == "completed" ? [["area": "lips", "instruction": "Blend the lip color inward.", "instruction_zh": "先勾勒唇形，再将唇色向内轻轻晕染。"]] : []]
+            if status == "completed" {
+                payload["stylingSuggestion"] = "Your soft rose makeup pairs with ivory, oatmeal and olive. Small gold earrings and a light cardigan suit the cool 18°C weather."
+                payload["stylingSuggestion_zh"] = "柔和玫瑰色妆容适合象牙白、燕麦色或橄榄绿，配上小巧金色耳钉；18°C的微凉天气可加一件薄开衫。"
+            }
             result = try? JSONDecoder().decode(Generation.self, from: JSONSerialization.data(withJSONObject: payload))
         }
         #endif
@@ -160,6 +166,7 @@ private enum Studio {
 
 struct TutorView: View {
     @StateObject private var model = TutorModel()
+    @StateObject private var stylingWeather = StylingWeather()
     @StateObject private var subscriptions = SubscriptionModel()
     @State private var membership = false
     @State private var checkingAccess = false
@@ -169,6 +176,8 @@ struct TutorView: View {
     @State private var style = "Auto"
     @AppStorage("photoProcessingConsent.mirrorOpenAI.makeup.v1") private var consent = false
     @State private var privacy = false
+    @State private var photoOptions = false
+    @State private var library = false
     @State private var camera = false
     @State private var cameraPermission = false
     private let endpoint = Bundle.main.object(forInfoDictionaryKey: "MakeupBackendURL") as? String ?? ""
@@ -187,7 +196,7 @@ struct TutorView: View {
                     header
                     hero
                     photoSection.id("photo-stage")
-                    if let job = model.result, !model.busy, !job.verifiedSteps.isEmpty { stepsSection(job) }
+                    if let job = model.result, !model.busy, !job.verifiedSteps.isEmpty { stepsSection(job).id("styling-section") }
                     if let job = model.result, !model.busy { outcomeSection(job) }
                     if let error = model.error {
                         Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(Studio.rose).padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.white, in: RoundedRectangle(cornerRadius: 18))
@@ -219,9 +228,20 @@ struct TutorView: View {
                 }
                 Button(text("取消", "Cancel"), role: .cancel) {}
             } message: { Text(text("在设置中允许 Mirror 使用相机，或从相册选择照片。", "Allow camera access in Settings, or choose a photo from your library.")) }
+            .confirmationDialog(text("添加照片", "Add a photo"), isPresented: $photoOptions, titleVisibility: .visible) {
+                Button(text("拍摄自拍", "Take a selfie"), action: takePhoto)
+                Button(text("从相册选择", "Photo library")) { library = true }
+                Button(text("取消", "Cancel"), role: .cancel) {}
+            }
+            .photosPicker(isPresented: $library, selection: $selection, matching: .images)
             .sheet(isPresented: $privacy) { privacySheet }
             .sheet(isPresented: $membership) { MembershipView(subscriptions: subscriptions, chinese: chinese) }
-            .task { await subscriptions.load() }
+            .task {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--mirror-ui-styling") { proxy.scrollTo("styling-section", anchor: .center) }
+                #endif
+                await subscriptions.load()
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await subscriptions.refresh() } }
             }
@@ -287,6 +307,7 @@ struct TutorView: View {
             membership = true
             return
         }
+        stylingWeather.prepare()
         await model.generate(endpoint: endpoint, style: style, subscriptionToken: token)
         await subscriptions.refresh()
     }
@@ -329,7 +350,7 @@ struct TutorView: View {
                 Text(model.busy ? text("正在为你设计", "Creating your look") : model.result != nil ? text("本次效果", "Your result") : text("你的照片", "Your photo")).font(.system(size: 17, weight: .medium, design: .serif))
                 Spacer()
                 if model.photo != nil {
-                    PhotosPicker(selection: $selection, matching: .images) { Text(text("更换照片", "Change photo")).font(.caption).underline() }.disabled(model.busy)
+                    Button { photoOptions = true } label: { Text(text("更换照片", "Change photo")).font(.caption).underline() }.disabled(model.busy || model.guidanceBusy)
                 }
             }
             Group {
@@ -344,7 +365,7 @@ struct TutorView: View {
                                 .font(.caption).padding(.bottom, 20)
                         } else {
                             HStack(spacing: 12) {
-                                Button { Task { await subscriptions.refresh(); await model.like(endpoint: endpoint, subscriptionToken: subscriptions.sessionToken) } } label: {
+                                Button { Task { await subscriptions.refresh(); await model.like(endpoint: endpoint, subscriptionToken: subscriptions.sessionToken, weather: stylingWeather.context) } } label: {
                                     Text(text("♡ 喜欢 · 学怎么化", "♡ Like · Learn"))
                                         .frame(maxWidth: .infinity).padding(.vertical, 15)
                                         .background(Studio.rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
@@ -361,10 +382,12 @@ struct TutorView: View {
                 else if let before = model.before, let after = model.after {
                     Comparison(before: before, after: after, chinese: chinese, callouts: model.result?.verifiedCallouts ?? []).id(model.result?.id ?? model.result?.status ?? "result")
                 } else if let image = model.photo {
-                    Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
-                        .background(Studio.ink.opacity(0.04))
+                    Button { photoOptions = true } label: {
+                        Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
+                            .background(Studio.ink.opacity(0.04))
+                    }.buttonStyle(.plain).accessibilityLabel(text("更换照片：拍摄或从相册选择", "Change photo: camera or library"))
                 } else {
-                    PhotosPicker(selection: $selection, matching: .images) {
+                    Button { photoOptions = true } label: {
                         VStack(spacing: 17) {
                             ZStack {
                                 Circle().fill(Color(red: 0.94, green: 0.88, blue: 0.85)).frame(width: 88, height: 88)
@@ -372,25 +395,13 @@ struct TutorView: View {
                                 Image(systemName: "plus.circle.fill").font(.system(size: 23)).foregroundStyle(Studio.rose, Studio.paper).offset(x: 32, y: 28)
                             }
                             Text(text("从一张自拍开始", "Start with a selfie")).font(.system(size: 20, weight: .regular, design: .serif))
-                            Text(text("轻点选择照片", "Tap to choose a photo")).font(.system(size: 13)).foregroundStyle(Studio.muted)
+                            Text(text("轻点拍摄或选择照片", "Tap to take or choose a photo")).font(.system(size: 13)).foregroundStyle(Studio.muted)
                             Text("JPG · PNG · HEIC").font(.system(size: 10)).tracking(2).foregroundStyle(Studio.muted.opacity(0.8))
                         }.frame(maxWidth: .infinity).frame(height: 260).background(.white.opacity(0.6))
                     }.buttonStyle(.plain)
                 }
             }.clipShape(RoundedRectangle(cornerRadius: 22))
                 .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(Studio.ink.opacity(0.08), lineWidth: 1) }
-            HStack(spacing: 12) {
-                Button(action: takePhoto) {
-                    Label(text("拍摄自拍", "Take a selfie"), systemImage: "camera")
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Studio.rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
-                }
-                PhotosPicker(selection: $selection, matching: .images) {
-                    Label(text("从相册选择", "Photo library"), systemImage: "photo")
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }.font(.system(size: 13)).buttonStyle(.plain).disabled(model.busy || model.guidanceBusy)
             if model.result == nil && !model.busy {
                 Text(text("正面、均匀光线，眉眼和嘴唇清楚可见。", "Face the camera in even light, with brows, eyes and lips visible.")).font(.system(size: 11)).foregroundStyle(Studio.muted)
             }
@@ -509,6 +520,12 @@ struct TutorView: View {
                 }.padding(.vertical, 18)
                 Rectangle().fill(Studio.ink.opacity(0.1)).frame(height: 1)
             }
+            if let suggestion = (chinese ? job.stylingSuggestion_zh ?? job.stylingSuggestion : job.stylingSuggestion), !suggestion.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(text("完善你的造型", "Complete Your Look")).font(.system(size: 21, weight: .regular, design: .serif))
+                    Text(suggestion).font(.system(size: 13)).lineSpacing(5).foregroundStyle(Studio.muted)
+                }.padding(.top, 12)
+            }
         }
     }
     private var privacySheet: some View {
@@ -520,6 +537,8 @@ struct TutorView: View {
                     Text(text("Mirror 服务在请求结束后删除临时照片。OpenAI 的数据保留遵循其自身政策。", "Mirror deletes temporary server photos after the request. OpenAI retention follows its own policies."))
                     Text(text("App 不会自动保存照片或结果。你可以主动保存或分享效果图。", "The app does not automatically save photos or results. You can choose to save or share a look."))
                     Link(text("查看 OpenAI 数据政策", "Read OpenAI data policies"), destination: URL(string: "https://platform.openai.com/docs/guides/your-data")!)
+                    Text(text("允许定位后，Mirror 仅将约 11 公里精度的位置发送给 MET Norway 查询天气；只把温度和天气状况用于搭配建议。拒绝定位不影响化妆功能。", "With location permission, Mirror sends only a location rounded to about 11 km to MET Norway for weather. Only temperature and conditions are used for styling advice. Denying permission does not affect makeup features."))
+                    Link("Weather data: MET Norway · CC BY 4.0", destination: URL(string: "https://api.met.no/doc/License")!)
                     Divider()
                     Text(consent ? text("你已允许照片处理。选择会在此设备上保存，无需每次重复同意。", "Photo processing is permitted. Your choice is saved on this device.") : text("你尚未允许照片处理。生成前需要先同意。", "Photo processing is not permitted. Consent is required before generating."))
                     if consent {

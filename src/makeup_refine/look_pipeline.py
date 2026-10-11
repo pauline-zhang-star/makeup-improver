@@ -88,7 +88,7 @@ class LookPipeline:
         self.on_aligned = on_aligned
         self.defer_guidance = defer_guidance
 
-    def explain(self, original, enhanced, evidence=None):
+    def explain(self, original, enhanced, evidence=None, styling_context=None):
         """May be retried on the saved pair without calling the image editor."""
         if original.size != enhanced.size:
             raise SpikeError('QUALITY_CHECK_FAILED', 'Image dimensions changed.')
@@ -98,6 +98,8 @@ class LookPipeline:
                     'comparisonEvidence': evidence, 'pendingChangeReviews': []}
         try:
             arguments = {'evidence': evidence} if evidence else {}
+            if styling_context is not None:
+                arguments['styling_context'] = styling_context
             comparison = LookComparison.model_validate(
                 self.explainer.explain_changes(original, enhanced, **arguments))
         except (SpikeError, ValidationError) as exc:
@@ -117,6 +119,8 @@ class LookPipeline:
         steps = [step.model_dump() for step in comparison.visible_steps()]
         return {'status': 'completed' if steps else 'completed_no_visible_changes',
                 'steps': steps, 'assessments': assessments,
+                'stylingSuggestion': comparison.stylingSuggestion,
+                'stylingSuggestion_zh': comparison.stylingSuggestion_zh,
                 'preservationIssues': [], 'comparisonStatus': 'completed',
                 'comparisonEvidence': evidence,
                 'pendingChangeReviews': unresolved_evidence(evidence or {}, comparison)}

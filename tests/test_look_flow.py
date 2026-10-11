@@ -80,7 +80,7 @@ class Provider:
         enhanced.paste((180, 80, 90), (200, 320, 300, 350))
         return enhanced
 
-    def explain_changes(self, original, enhanced, evidence=None):
+    def explain_changes(self, original, enhanced, evidence=None, styling_context=None):
         self.calls.append(('explain', original, enhanced))
         if self.fail:
             raise SpikeError('EXPLANATION_FAILED', 'Steps unavailable.')

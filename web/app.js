@@ -187,7 +187,7 @@ function chooseFile(file) {
     show('progress', false);
     show('comparison', false);
     show('look-preview', false);
-    show('guidance', false);
+    show('guidance', false); show('styling', false);
     show('audit', false);
     show('uploaded-link', false);
     show('full-review', false);
@@ -319,9 +319,37 @@ function renderServerlessProgress() {
   $('progress-detail').textContent = t('serverlessElapsed', seconds);
 }
 
+// Optional weather is prepared in parallel; the makeup flow never awaits it.
+let stylingWeather = null;
+let stylingWeatherAt = 0;
+let weatherPending = false;
+function prepareStylingWeather() {
+  if (!navigator.geolocation || weatherPending) return;
+  weatherPending = true;
+  navigator.geolocation.getCurrentPosition(async position => {
+    stylingWeather = null;
+    try {
+      const lat = Math.round(position.coords.latitude * 10) / 10;
+      const lon = Math.round(position.coords.longitude * 10) / 10;
+      const response = await fetch(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`, {signal: AbortSignal.timeout(4000)});
+      if (!response.ok) return;
+      const first = (await response.json()).properties?.timeseries?.[0];
+      if (!first || !Number.isFinite(Date.parse(first.time)) || Math.abs(Date.now() - Date.parse(first.time)) > 7200000) return;
+      const temperatureC = first.data?.instant?.details?.air_temperature;
+      const symbol = first.data?.next_1_hours?.summary?.symbol_code;
+      if (!Number.isFinite(temperatureC) || typeof symbol !== 'string') return;
+      const condition = symbol.includes('thunder') ? 'thunderstorm' : symbol.includes('sleet') ? 'sleet' : symbol.includes('snow') ? 'snow' : symbol.includes('rain') ? 'rain' : symbol.includes('fog') ? 'fog' : symbol.includes('cloud') ? 'cloudy' : 'clear';
+      stylingWeather = {temperatureC, condition}; stylingWeatherAt = Date.now();
+    } catch { /* Styling still works without weather. */ }
+    finally { weatherPending = false; }
+  }, () => { weatherPending = false; stylingWeather = null; }, {enableHighAccuracy: false, maximumAge: 0, timeout: 4000});
+}
+function currentStylingWeather() { return Date.now() - stylingWeatherAt < 3600000 ? stylingWeather : null; }
+
 async function generate() {
   if (!state.file) return;
   clearTimeout(state.timer);
+  prepareStylingWeather();
   beginProgress();
   try {
     if (!state.quota) await refreshQuota();
@@ -378,7 +406,7 @@ function renderError(message, key = null) {
   show('outcome', true);
   show('comparison', false);
   show('look-preview', false);
-  show('guidance', false);
+  show('guidance', false); show('styling', false);
   show('audit', false);
   show('uploaded-link', false);
   show('full-review', false);
@@ -502,6 +530,10 @@ function renderGuides(job) {
   const observed = job.status === 'completed';
   const guides = observed ? job.steps || [] : job.plannedGuides || [];
   show('guidance', guides.length > 0);
+  const styling = (language === 'zh' && job.stylingSuggestion_zh) || job.stylingSuggestion;
+  show('styling', observed && guides.length > 0 && Boolean(styling));
+  $('styling-title').textContent = language === 'zh' ? '完善你的造型' : 'Complete Your Look';
+  $('styling-copy').textContent = styling || '';
   $('guidance-title').textContent = observed ? t('guidanceTitle') : t('plannedTitle');
   $('guide-count').textContent = t('count', guides.length);
   const legacy = language === 'zh' && guides.some((guide) => !guide.instruction_zh);
@@ -646,7 +678,7 @@ function renderJob(job, preserveSlider = false) {
     renderCallouts(success ? job.callouts : []);
     if (!preserveSlider) splitAt(50);
   }
-  if (preview) show('guidance', false); else renderGuides(job);
+  if (preview) { show('guidance', false); show('styling', false); } else renderGuides(job);
   renderAudit(job);
   show('uploaded-link', Boolean(job.uploadedUrl));
   if (job.uploadedUrl) $('uploaded-link').href = job.uploadedUrl;
@@ -665,7 +697,7 @@ async function likeLook() {
     const online = state.quota?.mode === 'serverless';
     const response = await fetch(online ? '/api/guidance' : `/api/jobs/${job.id}/guidance`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(online ? {guidanceToken: job.guidanceToken, originalUrl: job.originalUrl, afterUrl: job.afterUrl} : {}),
+      body: JSON.stringify(online ? {guidanceToken: job.guidanceToken, originalUrl: job.originalUrl, afterUrl: job.afterUrl, weather: currentStylingWeather()} : {weather: currentStylingWeather()}),
     });
     const result = await jsonResponse(response);
     if (result.status === 'instructions_unavailable') result.guidanceToken = job.guidanceToken;

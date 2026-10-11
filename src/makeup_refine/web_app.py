@@ -201,6 +201,8 @@ def public_job(job_id, directory):
         'width': size[0] if size else None, 'height': size[1] if size else None,
         'callouts': callouts_for(report, size) if size and not (report.get('guidanceDeferred') and status != 'completed') else [],
         'steps': report.get('steps') or [],
+        'stylingSuggestion': report.get('stylingSuggestion') if status == 'completed' else None,
+        'stylingSuggestion_zh': report.get('stylingSuggestion_zh') if status == 'completed' else None,
         'planned': [{'id': x['technique_id'], 'area': x['region'],
                      'instruction': x.get('application') or x.get('instruction'),
                      'instruction_zh': x.get('application_zh'),
@@ -482,6 +484,14 @@ class WebHandler(BaseHTTPRequestHandler):
                     return
                 if report.get('status') not in ('preview_ready', 'instructions_unavailable', 'guidance_generating'):
                     raise ValueError('This result cannot provide instructions.')
+                # The existing report carries only bounded weather, never coordinates.
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 <= length <= 1024:
+                    raise ValueError('Invalid styling context.')
+                request = json.loads(self.rfile.read(length)) if length else {}
+                from .styling import weather_context
+                report['stylingContext'] = weather_context(request.get('weather') if isinstance(request, dict) else None) or {}
+                (directory / 'result.json').write_text(json.dumps(report))
                 env = os.environ.copy()
                 env.setdefault('MAKEUP_FAST_AI', '1')
                 env.setdefault('MAKEUP_REVIEW_MODEL', 'gpt-4.1-mini')

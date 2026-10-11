@@ -71,3 +71,24 @@ Device QA still required: grant/deny camera permission, return from Settings, ca
 ## TestFlight build 3: invited testing
 
 A developer-provided test code grants ten shared generation attempts for seven days from first redemption, without Apple purchases. No code or signing secret is embedded in the app. Configure only its SHA-256 digest in `MAKEUP_TEST_CODE_SHA256` on the backend. Empty/remove that variable before public release to disable redemption and existing test sessions. Reinstalling, restoring, changing devices or redeeming again does not reset usage or expiry. Pre-provider rejections refund an attempt; provider-started attempts count. Guidance is included. Tokens are purpose-scoped, signed, and stored in Keychain. Tests remain independent from Apple subscriptions and do not validate StoreKit purchases.
+
+### Complete Your Look
+
+After Like, the existing comparison call also describes the actual generated makeup,
+complementary clothing colors and accessories in English and Chinese. The section
+appears below verified instructions. It does not request another image or AI call.
+
+Optional location/weather starts in parallel when generating a preview. Coordinates
+are rounded on-device to 0.1 degrees before calling MET Norway's free compact API;
+only temperature and conditions enter the guidance request. Denied permission,
+timeouts and missing/expired weather omit weather advice without delaying guidance.
+The forecast response is read in memory and its HTTP expiry is respected. Location
+is not stored in Mirror's database. MET Norway attribution is in Privacy.
+Open-Meteo's free hosted API excludes subscription apps, so it is not used here.
+
+Backend regression tests mock AI and include weather/no-weather, rejected results,
+invalid optional fields and reuse of the existing guidance cache. No paid AI calls
+are needed to run them. For a static simulator layout preview, use Debug launch
+arguments `--mirror-ui-fixture completed --mirror-ui-styling`; it is a UI fixture,
+not an actual AI result. Deployment and a new TestFlight build are still needed for
+phone testing. Review App Store privacy disclosures for optional coarse location.

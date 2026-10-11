@@ -55,6 +55,8 @@ class LookComparison(StrictModel):
                                     'lighting', 'clothes', 'background', 'mouth_state',
                                     'teeth_visibility', 'added_objects', 'makeup_artifacts']] = Field(max_length=12)
     assessments: list[AreaComparison] = Field(min_length=8, max_length=8)
+    stylingSuggestion: Optional[str] = None
+    stylingSuggestion_zh: Optional[str] = None
 
     @model_validator(mode='after')
     def unique_areas(self):

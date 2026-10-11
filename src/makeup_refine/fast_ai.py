@@ -48,7 +48,7 @@ COMPARISON_KEYS = {'area': 'a', 'change': 'c', 'confidence': 'p', 'before': 'b',
                    'after': 't', 'instruction': 'i', 'instruction_zh': 'z'}
 
 
-def comparison_contract():
+def comparison_contract(include_styling=False):
     schema = LookComparison.model_json_schema()
     row = schema['$defs']['AreaComparison']
     row['properties'] = {COMPARISON_KEYS[k]: v for k, v in row['properties'].items()}
@@ -61,8 +61,9 @@ def comparison_contract():
         properties['c'] = {'type': 'string', 'enum': [change]}
         variants.append({'type': 'object', 'properties': properties})
     schema['properties']['assessments']['items'] = {'anyOf': variants}
+    styling = {key: schema['properties'][key] for key in ('stylingSuggestion', 'stylingSuggestion_zh')} if include_styling else {}
     schema['properties'] = {'p': schema['properties']['preservationIssues'],
-                            'a': schema['properties']['assessments']}
+                            'a': schema['properties']['assessments'], **styling}
     def close(node):
         if isinstance(node, dict):
             for key in ('default', 'title', 'minLength', 'maxLength'):
@@ -90,7 +91,7 @@ def comparison_contract():
 
 def comparison_decode(content):
     data = json.loads(content)
-    if set(data) != {'p', 'a'}:
+    if not {'p', 'a'} <= set(data) or set(data) - {'p', 'a', 'stylingSuggestion', 'stylingSuggestion_zh'}:
         raise ValueError('Invalid comparison transport fields.')
     reverse = {v: k for k, v in COMPARISON_KEYS.items()}
     rows = []
@@ -105,7 +106,9 @@ def comparison_decode(content):
         expanded.setdefault('instruction', None)
         expanded.setdefault('instruction_zh', None)
         rows.append(expanded)
-    return LookComparison.model_validate({'preservationIssues': data['p'], 'assessments': rows})
+    from .styling import clean_suggestions
+    suggestions = clean_suggestions({key: data.get(key) for key in ('stylingSuggestion', 'stylingSuggestion_zh')})
+    return LookComparison.model_validate({'preservationIssues': data['p'], 'assessments': rows, **suggestions})
 
 
 def detail_boards(original, enhanced, evidence):

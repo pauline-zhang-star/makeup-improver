@@ -7,8 +7,9 @@
 <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
-<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleVersion</key><string>6</string>
 <key>NSCameraUsageDescription</key><string>Mirror uses the camera only when you choose to take a selfie for makeup previews. Mirror 仅在你选择拍摄自拍时使用相机，用于妆容预览。</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>Mirror uses your approximate location for weather-aware styling suggestions. Rounded location is sent to MET Norway; this is optional. Mirror 可选使用大致位置获取天气搭配建议，粗略位置会发送至 MET Norway。</string>
 <key>LSRequiresIPhoneOS</key><true/>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>

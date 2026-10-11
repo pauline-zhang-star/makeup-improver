@@ -363,14 +363,17 @@ def test_liked_preview_only_runs_comparison_and_reuses_cached_result(monkeypatch
         assert '--edit-model' not in command
         output = Path(command[command.index('--retry-instructions') + 1])
         report = json.loads((output / 'result.json').read_text())
-        report.update(status='completed', steps=[{'area': 'lips', 'instruction': 'Blend inward.'}])
+        assert report['stylingContext'] == {'temperatureC': 18.0, 'condition': 'rain'}
+        report.update(stylingSuggestion='Observed rose lips suit ivory, gold studs and a rain jacket.',
+                      stylingSuggestion_zh='玫瑰唇妆适合象牙白，配金色耳钉与雨衣。', status='completed', steps=[{'area': 'lips', 'instruction': 'Blend inward.'}])
         (output / 'result.json').write_text(json.dumps(report))
     monkeypatch.setattr(vercel_app.subprocess, 'run', fake_run)
-    body = json.dumps({'guidanceToken': ticket, 'originalUrl': before, 'afterUrl': after}).encode()
+    body = json.dumps({'guidanceToken': ticket, 'originalUrl': before, 'afterUrl': after, 'weather': {'temperatureC': 18, 'condition': 'rain', 'latitude': 43.7}}).encode()
     for _ in range(2):
         status, payload, _ = request('do_POST', '/api/guidance', body, cookie=cookie)
         assert status == 200
         assert json.loads(payload)['steps'][0]['area'] == 'lips'
+        assert 'rain jacket' in json.loads(payload)['stylingSuggestion']
     assert len(calls) == 1
     assert store.reservations == 0
     bad = json.dumps({'guidanceToken': ticket, 'originalUrl': before, 'afterUrl': after + 'changed'}).encode()

@@ -198,7 +198,7 @@ class OpenAIProvider:
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, OSError) as exc:
             raise SpikeError("IMAGE_EDIT_FAILED", "Could not generate the enhanced photograph.") from exc
 
-    def explain_changes(self, original, enhanced, evidence=None):
+    def explain_changes(self, original, enhanced, evidence=None, styling_context=None):
         """Explain the actual image pair, without knowledge of the requested style."""
         content = []
         for label, image in (("ORIGINAL", original), ("ENHANCED", enhanced)):
@@ -236,7 +236,10 @@ class OpenAIProvider:
         prompt, response_format = comparison_prompt(), {"type": "json_object"}
         if self.fast_ai:
             from .fast_ai import comparison_contract
-            prompt, response_format = comparison_contract()
+            prompt, response_format = comparison_contract(include_styling=styling_context is not None)
+        if styling_context is not None:
+            from .styling import styling_prompt
+            prompt += styling_prompt(styling_context)
         try:
             response = self._post("comparison", "chat/completions", json={
                 "model": self.review_model, "response_format": response_format,
@@ -247,6 +250,7 @@ class OpenAIProvider:
             if self.fast_ai:
                 from .fast_ai import comparison_decode
                 return comparison_decode(content)
-            return LookComparison.model_validate_json(content)
+            from .styling import clean_suggestions
+            return LookComparison.model_validate(clean_suggestions(json.loads(content)))
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
             raise SpikeError("EXPLANATION_FAILED", "The image is ready, but its makeup steps could not be verified.") from exc

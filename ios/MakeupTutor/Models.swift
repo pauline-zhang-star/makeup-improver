@@ -1,4 +1,6 @@
 import Foundation
+import CoreLocation
+import Combine
 
 struct Step: Decodable {
     let area: String
@@ -32,6 +34,8 @@ struct Generation: Decodable {
     let serverDurationSeconds: Double?
     let nonAPIDurationSeconds: Double?
     let guidanceToken: String?
+    let stylingSuggestion: String?
+    let stylingSuggestion_zh: String?
     let steps: [Step]?
     let callouts: [Callout]?
     var outcome: Outcome {
@@ -78,3 +82,82 @@ struct Generation: Decodable {
     }
 }
 struct ServerError: Decodable { let error: String }
+
+// Weather is prepared during generation; Like never waits for location or a network request.
+@MainActor
+final class StylingWeather: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var pending = false
+    private var requestStarted = Date.distantPast
+    private var cachedUntil = Date.distantPast
+    private var weatherAt = Date.distantPast
+    private var cachedCell = ""
+    private var weather: [String: Any]?
+    private let session = URLSession(configuration: .ephemeral)
+    var context: [String: Any]? { Date() < cachedUntil && Date().timeIntervalSince(weatherAt) < 3600 ? weather : nil }
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+    }
+    func prepare() {
+        guard CLLocationManager.locationServicesEnabled(), !pending else { return }
+        pending = true
+        requestStarted = Date()
+        switch manager.authorizationStatus {
+        case .notDetermined: manager.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse: manager.requestLocation()
+        default: pending = false; weather = nil
+        }
+    }
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard pending else { return }
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse: manager.requestLocation()
+        case .denied, .restricted: pending = false; weather = nil
+        default: break
+        }
+    }
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { pending = false; weather = nil }
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard pending else { return }
+        pending = false
+        guard Date().timeIntervalSince(requestStarted) < 60, let location = locations.last,
+              location.horizontalAccuracy >= 0, abs(location.timestamp.timeIntervalSinceNow) < 300 else { return }
+        // Round on-device to about 11 km; precise coordinates never leave the device.
+        let lat = (location.coordinate.latitude * 10).rounded() / 10
+        let lon = (location.coordinate.longitude * 10).rounded() / 10
+        let cell = "\(lat),\(lon)"
+        if cachedCell == cell, Date() < cachedUntil { return }
+        weather = nil
+        Task {
+            do {
+                var url = URLComponents(string: "https://api.met.no/weatherapi/locationforecast/2.0/compact")!
+                url.queryItems = [URLQueryItem(name: "lat", value: String(lat)), URLQueryItem(name: "lon", value: String(lon))]
+                var request = URLRequest(url: url.url!, timeoutInterval: 4)
+                request.setValue("Mirror/1.0 github.com/pauline-zhang-star/makeup-improver", forHTTPHeaderField: "User-Agent")
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let properties = root["properties"] as? [String: Any],
+                      let series = properties["timeseries"] as? [[String: Any]], let first = series.first,
+                      let time = first["time"] as? String, let date = ISO8601DateFormatter().date(from: time),
+                      abs(date.timeIntervalSinceNow) < 7200,
+                      let fields = first["data"] as? [String: Any],
+                      let instant = fields["instant"] as? [String: Any],
+                      let details = instant["details"] as? [String: Any],
+                      let temperature = details["air_temperature"] as? Double, temperature.isFinite,
+                      (-90...60).contains(temperature),
+                      let next = fields["next_1_hours"] as? [String: Any],
+                      let summary = next["summary"] as? [String: Any], let symbol = summary["symbol_code"] as? String else { return }
+                let condition = symbol.contains("thunder") ? "thunderstorm" : symbol.contains("sleet") ? "sleet" : symbol.contains("snow") ? "snow" : symbol.contains("rain") ? "rain" : symbol.contains("fog") ? "fog" : symbol.contains("cloud") ? "cloudy" : "clear"
+                let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0); formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+                guard let expiry = http.value(forHTTPHeaderField: "Expires").flatMap({ formatter.date(from: $0) }), expiry > Date() else { return }
+                weather = ["temperatureC": temperature, "condition": condition]
+                cachedCell = cell; cachedUntil = expiry; weatherAt = Date()
+            } catch { /* Optional weather must never interrupt makeup generation or guidance. */ }
+        }
+    }
+}

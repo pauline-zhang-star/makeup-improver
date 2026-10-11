@@ -479,6 +479,8 @@ class VercelHandler(WebHandler):
                         image.convert('RGB').save(output / name, compress_level=1)
                         display_size = image.size
                 report = ticket['report']
+                from .styling import weather_context
+                report['stylingContext'] = weather_context(request.get('weather')) or {}
                 report['comparisonEvidence'] = evidence_for_display(report.get('comparisonEvidence'), display_size)
                 report.update(status='preview_ready', originalImage='originalImage.png',
                               enhancedImage='enhancedImage.png', steps=[])

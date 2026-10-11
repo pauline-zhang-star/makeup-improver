@@ -147,6 +147,9 @@ def enhancement_prompt(style, plan=None):
         'mean removing all makeup or starting over, and must not lighten natural skin or hair. ' + direction +
         'Blend shadow and contour edges; never draw a harsh dark '
         'lip perimeter. Avoid heavy smoky eyes, obvious blush circles and uniform darkening. '
+        'Blush must be a continuous diffuse wash of color, never outlined: no oval strokes, '
+        'concentric rings, pale rims or unfilled centers. Blend blush and foundation together '
+        'without tracing the mask boundary, retaining realistic skin texture. '
         'When a nose-contour technique is selected, make its selected bridge highlight or nostril-side '
         'shading visibly distinguishable from the original at normal viewing size, within its supplied '
         'placement, intensity and mask. Do not simply reproduce the original natural nose shadow. '

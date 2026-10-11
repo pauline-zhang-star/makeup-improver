@@ -208,8 +208,14 @@ class LookPipeline:
                                                            'nose_contour', 'foundation'}]
                 pigment_mask = masks.mask_for(pigment_items) if pigment_items else None
                 if blush_items:
-                    other_items = [item for item in plan.selected if item.get('region') != 'blush']
-                    blush_mask = masks.mask_for(blush_items)
+                    # Base makeup and blush share the cheek surface. Feather
+                    # their union so a hard foundation oval cannot override
+                    # the blush fade and leave an internal ring.
+                    diffuse_items = [item for item in plan.selected
+                                     if item.get('region') in {'blush', 'foundation'}]
+                    other_items = [item for item in plan.selected
+                                   if item.get('region') not in {'blush', 'foundation'}]
+                    blush_mask = masks.mask_for(diffuse_items)
                     other_mask = (masks.mask_for(other_items)
                                   if other_items else None)
                     enhanced, composite_report = edge_safe_composite(

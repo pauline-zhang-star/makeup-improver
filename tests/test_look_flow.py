@@ -871,6 +871,39 @@ def test_soft_cheek_composite_fades_inside_oval_without_fading_other_makeup():
     assert report['softRegionCoverageFraction'] > 0
 
 
+def test_blush_and_foundation_share_diffuse_composite_boundary(image, monkeypatch):
+    from makeup_refine import look_pipeline
+    from makeup_refine.look_mask import DirectMaskCache
+    selected = [
+        {'region': 'blush', 'technique_id': 'blush_01', 'intensity': .6},
+        {'region': 'foundation', 'technique_id': 'foundation_01', 'intensity': .6},
+        {'region': 'lips', 'technique_id': 'lips_01', 'intensity': .6},
+    ]
+    provider = Provider()
+    original_plan = provider.plan_techniques
+    def plan(*args):
+        result = original_plan(*args)
+        result.selected = selected
+        return result
+    provider.plan_techniques = plan
+    captured = {}
+    def composite(original, edited, mask, **kwargs):
+        captured.update(kwargs)
+        return edge_safe_composite(original, edited, mask, **kwargs)
+    monkeypatch.setattr(look_pipeline, 'edge_safe_composite', composite)
+    try:
+        LookPipeline(provider, provider, Detector(), max_edit_attempts=1).run(image)
+    except SpikeError:
+        # This fixture only paints lips; region-visibility checks may reject
+        # the unchanged cheeks after the real composite has been captured.
+        pass
+    masks = DirectMaskCache(image.size, Detector().detect(image)[0], MakeupStyle.AUTO)
+    assert np.array_equal(np.asarray(captured['soft_mask']),
+                          np.asarray(masks.mask_for(selected[:2])))
+    assert np.array_equal(np.asarray(captured['hard_mask']),
+                          np.asarray(masks.mask_for(selected[2:])))
+
+
 def test_complexion_texture_restoration_keeps_fine_detail_inside_foundation_mask():
     pixels = np.full((80, 80, 3), 120, dtype=np.uint8)
     pixels[20:60, 20:60] += (np.indices((40, 40))[0] % 3)[..., None].astype(np.uint8) * 12

@@ -521,15 +521,30 @@ struct TutorView: View {
                 Rectangle().fill(Studio.ink.opacity(0.1)).frame(height: 1)
             }
             if let suggestion = (chinese ? job.stylingSuggestion_zh ?? job.stylingSuggestion : job.stylingSuggestion), !suggestion.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 16) {
                     Label(text("完善你的造型", "Complete Your Look"), systemImage: "sparkles")
-                        .font(.system(size: 17, weight: .medium, design: .serif))
-                    Text(suggestion).font(.system(size: 12)).lineSpacing(4).foregroundStyle(Studio.muted)
+                        .font(.system(size: 21, weight: .medium, design: .serif))
+                    ForEach(Array(stylingLines(suggestion).enumerated()), id: \.offset) { _, line in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text("•").foregroundStyle(Studio.rose)
+                            Text(line).frame(maxWidth: .infinity, alignment: .leading)
+                        }.font(.system(size: 15)).lineSpacing(5).foregroundStyle(Studio.muted)
+                    }
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                     .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 18))
                     .padding(.top, 12)
             }
         }
+    }
+    private func stylingLines(_ suggestion: String) -> [String] {
+        // Also display previously generated paragraphs as separate sentences;
+        // decimal temperatures such as 14.8°C must remain intact.
+        let separated = suggestion.replacingOccurrences(
+            of: "(?<=[。！？；;])\\s*|(?<=[.!?])\\s+(?=[A-Z])",
+            with: "\n", options: .regularExpression)
+        return separated.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
     private var privacySheet: some View {
         NavigationStack {

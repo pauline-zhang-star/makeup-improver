@@ -21,7 +21,9 @@ def styling_prompt(context):
     conditions = (f'Current local weather: {weather["temperatureC"]} C, {weather["condition"]}. '
                   if weather else 'Weather unavailable: do not mention weather, season or temperature. ')
     return (' Separate optional styling task, AFTER independently completing all preservation and makeup checks: '
-            'return stylingSuggestion and stylingSuggestion_zh, each one concise natural paragraph '
+            'return stylingSuggestion and stylingSuggestion_zh as concise newline-separated suggestions, '
+            'one topic per line: observed makeup, clothing colors, accessories, and weather clothing if available. '
+            'Use no numbering, bullets or headings. '
             '(English at most 55 words, Chinese at most 120 characters). Identify the ACTUAL ENHANCED '
             'makeup palette/finish visible in the photo, suggest 2-4 complementary clothing colors and '
             'suitable earrings or necklace. Base this on observed makeup, never the requested style or '
@@ -29,7 +31,7 @@ def styling_prompt(context):
             'When weather is provided include a suitable clothing layer/material and temperature; '
             'do not predict later weather. Treat suggestions as optional choices, not observed accessories. '
             'Do not change the makeup assessments to fit styling advice. Use null if the look cannot be '
-            'described reliably or preservationIssues is nonempty. The Chinese paragraph must match English.')
+            'described reliably or preservationIssues is nonempty. The Chinese lines must match English.')
 
 
 def clean_suggestions(data):

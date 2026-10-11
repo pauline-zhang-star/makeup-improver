@@ -16,3 +16,4 @@ main{max-width:1350px;margin:auto;padding:0 38px 70px}.hero{height:335px;display
 .progress-panel.serverless .progress-steps{display:none}
 
 #preview-result{display:block;width:100%;border-radius:12px}#preview-note,#guidance-status{font-size:13px;color:var(--muted);line-height:1.7}.preference-actions{display:flex;gap:12px;margin:18px 0}.preference-actions button{flex:1;padding:15px;border:1px solid #b9838b;border-radius:12px;background:transparent;color:#92545f;font:inherit;cursor:pointer}#like-look{background:#a96873;color:white}.preference-actions button:disabled{opacity:.55;cursor:wait}
+#styling-copy { white-space: pre-line; }

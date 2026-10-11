@@ -522,9 +522,12 @@ struct TutorView: View {
             }
             if let suggestion = (chinese ? job.stylingSuggestion_zh ?? job.stylingSuggestion : job.stylingSuggestion), !suggestion.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(text("完善你的造型", "Complete Your Look")).font(.system(size: 21, weight: .regular, design: .serif))
-                    Text(suggestion).font(.system(size: 13)).lineSpacing(5).foregroundStyle(Studio.muted)
-                }.padding(.top, 12)
+                    Label(text("完善你的造型", "Complete Your Look"), systemImage: "sparkles")
+                        .font(.system(size: 17, weight: .medium, design: .serif))
+                    Text(suggestion).font(.system(size: 12)).lineSpacing(4).foregroundStyle(Studio.muted)
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 18))
+                    .padding(.top, 12)
             }
         }
     }

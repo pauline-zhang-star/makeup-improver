@@ -526,14 +526,24 @@ function renderCallouts(callouts) {
   }
 }
 
+function stylingLines(suggestion) {
+  // Match the app's sentence separation without splitting decimal temperatures.
+  return (suggestion || '')
+    .replace(/(?<=[。！？；;])\s*|(?<=[.!?])\s+(?=[A-Z])/g, '\n')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
 function renderGuides(job) {
   const observed = job.status === 'completed';
   const guides = observed ? job.steps || [] : job.plannedGuides || [];
   show('guidance', guides.length > 0);
   const styling = (language === 'zh' && job.stylingSuggestion_zh) || job.stylingSuggestion;
-  show('styling', observed && guides.length > 0 && Boolean(styling));
+  const suggestions = stylingLines(styling);
+  show('styling', observed && guides.length > 0 && suggestions.length > 0);
   $('styling-title').textContent = language === 'zh' ? '完善你的造型' : 'Complete Your Look';
-  $('styling-copy').textContent = styling || '';
+  $('styling-copy').replaceChildren(...suggestions.map(line => make('li', line)));
   $('guidance-title').textContent = observed ? t('guidanceTitle') : t('plannedTitle');
   $('guide-count').textContent = t('count', guides.length);
   const legacy = language === 'zh' && guides.some((guide) => !guide.instruction_zh);

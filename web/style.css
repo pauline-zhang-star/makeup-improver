@@ -16,4 +16,45 @@ main{max-width:1350px;margin:auto;padding:0 38px 70px}.hero{height:335px;display
 .progress-panel.serverless .progress-steps{display:none}
 
 #preview-result{display:block;width:100%;border-radius:12px}#preview-note,#guidance-status{font-size:13px;color:var(--muted);line-height:1.7}.preference-actions{display:flex;gap:12px;margin:18px 0}.preference-actions button{flex:1;padding:15px;border:1px solid #b9838b;border-radius:12px;background:transparent;color:#92545f;font:inherit;cursor:pointer}#like-look{background:#a96873;color:white}.preference-actions button:disabled{opacity:.55;cursor:wait}
-#styling-copy { white-space: pre-line; }
+.styling-card {
+  margin-top: 12px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .7);
+}
+.styling-card h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 16px;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.styling-card h3::before {
+  content: "✧";
+  color: var(--rose);
+  flex: none;
+}
+.styling-list {
+  display: grid;
+  gap: 16px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: calc(1em + 5px);
+  overflow-wrap: anywhere;
+}
+.styling-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.styling-list li::before {
+  content: "•";
+  color: var(--rose);
+  flex: none;
+}

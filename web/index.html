@@ -12,7 +12,7 @@
   <header class="topbar">
     <a class="brand" href="/" aria-label="Mirror 首页" data-i18n-aria="brandAria"><span class="brand-mark">m.</span><span>mirror</span></a>
     <span class="top-note" data-i18n="topNote">YOUR MAKEUP, REIMAGINED</span>
-    <div class="top-actions"><div class="language-toggle" role="group" aria-label="语言 / Language"><button type="button" data-language="zh" aria-pressed="true">中文</button><button type="button" data-language="en" aria-pressed="false">EN</button></div><span class="local-pill"><span class="local-dot"></span> <span data-i18n="local">本机运行</span></span></div>
+    <div class="top-actions"><div class="language-toggle" role="group" aria-label="语言 / Language"><button type="button" data-language="zh" aria-pressed="true">中文</button><button type="button" data-language="en" aria-pressed="false">EN</button></div></div>
   </header>
 
   <main>
@@ -26,6 +26,15 @@
       <div class="hero-aside" aria-hidden="true"><div class="orb orb-one"></div><div class="orb orb-two"></div><span data-i18n="aside">YOUR LOOK, MORE YOU.</span></div>
     </section>
 
+    <section id="example" class="example-card card" aria-labelledby="example-title">
+      <div class="example-heading"><div><p class="kicker">MIRROR IN ACTION</p><h2 id="example-title" data-i18n="exampleTitle">不用等待，先看一次真实效果</h2></div><span class="example-badge" data-i18n="exampleBadge">静态示例 · 无需上传</span></div>
+      <div class="example-images">
+        <figure><img src="/example-before.png" width="768" height="1024" alt="早期原型示例原图" data-i18n-alt="exampleBeforeAlt" decoding="async"><figcaption data-i18n="beforeTag">原图</figcaption></figure>
+        <figure><img src="/example-after.png" width="768" height="1024" alt="早期原型的 AI 妆容生成结果" data-i18n-alt="exampleAfterAlt" decoding="async"><figcaption data-i18n="afterTag">生成图</figcaption></figure>
+      </div>
+      <p class="example-caption" data-i18n="exampleCaption">来自早期原型的一次真实生成，展示眼妆与唇妆的细微调整。仅供了解效果，不代表当前版本每次生成的表现；你的结果会因照片和风格而异。</p>
+    </section>
+
     <div class="workspace">
       <section class="setup card" aria-labelledby="start-title">
         <div class="section-heading"><span class="section-num">01</span><div><p class="kicker" data-i18n="startKicker">START HERE</p><h2 id="start-title" data-i18n="yourPhoto">你的照片</h2></div></div>
@@ -35,14 +44,16 @@
           <span id="upload-placeholder" class="upload-placeholder"><span class="upload-icon">＋</span><strong data-i18n="upload">点击或拖放自拍照</strong><small data-i18n="uploadLimit">JPG / PNG / HEIC · 最大 12 MB</small></span>
           <span class="photo-action" id="photo-action" data-i18n="changePhoto" hidden>更换照片</span>
         </label>
-        <p class="field-hint" data-i18n="photoHint">建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先在本机裁剪；点击生成后将工作图发送给 OpenAI API。</p>
+        <p class="field-hint" data-i18n="photoHint">建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先调整构图；点击生成后将工作图发送给 OpenAI API。</p>
 
         <div class="section-heading style-heading"><span class="section-num">02</span><div><p class="kicker" data-i18n="optional">OPTIONAL</p><h2 data-i18n="styleTitle">想要的风格</h2></div></div>
         <p class="style-intro" data-i18n="styleIntro">没有想法？保持「Auto」，让 AI 根据照片选择。</p>
         <div class="styles" id="styles" role="radiogroup" aria-label="妆容风格" data-i18n-aria="styleAria"></div>
         <button id="generate" class="generate" type="button" disabled><span data-i18n="generate">生成我的妆容</span><span aria-hidden="true">↗</span></button>
         <p id="quota-status" class="quota-status" role="status" hidden></p>
-        <p class="submit-note" data-i18n="submitNote">生成通常需要几分钟。上传质量不合格会在调用图片 API 前提示重拍。</p>
+        <p class="submit-note" data-i18n="submitNote">生成通常需要几分钟。可以先看效果示例，再决定是否上传照片。</p>
+        <a class="sample-link" href="#example" data-i18n="sampleLink">先看效果示例 ↑</a>
+        <div class="photo-privacy"><p data-i18n="privacySummary">生成会将照片发送至 Mirror 后端和 OpenAI。线上服务器在请求结束后删除临时照片与结果；OpenAI 的保留政策另行适用。</p><a href="/privacy" target="_blank" rel="noopener" data-i18n="privacyLink">照片如何处理？查看隐私说明 ↗</a></div>
       </section>
 
       <section class="result card" id="result-section" aria-labelledby="result-title">
@@ -70,6 +81,6 @@
       </section>
     </div>
   </main>
-  <footer><span>mirror / makeup studio</span><span data-i18n="footer">为你设计 · 由你决定</span></footer>
+  <footer><span>mirror / makeup studio</span><a href="/privacy" data-i18n="privacyFooter">隐私说明</a><span data-i18n="footer">为你设计 · 由你决定</span></footer>
 </body>
 </html>

@@ -10,16 +10,17 @@ const areaNames = {
 };
 const translations = {
   zh: {
+    sampleLink:'先看效果示例 ↑', privacySummary:'生成会将照片发送至 Mirror 后端和 OpenAI。线上服务器在请求结束后删除临时照片与结果；OpenAI 的保留政策另行适用。', privacyLink:'照片如何处理？查看隐私说明 ↗', privacyFooter:'隐私说明', exampleTitle:'不用等待，先看一次真实效果', exampleBadge:'静态示例 · 无需上传', exampleBeforeAlt:'早期原型示例原图', exampleAfterAlt:'早期原型的 AI 妆容生成结果', exampleCaption:'来自早期原型的一次真实生成，展示眼妆与唇妆的细微调整。仅供了解效果，不代表当前版本每次生成的表现；你的结果会因照片和风格而异。',
     brandAria:'Mirror 首页', topNote:'YOUR MAKEUP, REIMAGINED', local:'本机运行', publicLabel:'在线体验', eyebrow:'PERSONAL MAKEUP STUDIO',
     heroLine1:'看见更适合', heroLine2:'自己的', heroLine3:'妆容。',
     heroLede:'上传一张清晰自拍，选择喜欢的风格。我们会根据你现在的妆容，设计一张可以对照、可以跟着化的效果图。',
     point1:'保留你的样子', point2:'按原妆调整', point3:'逐步教你实现', aside:'YOUR LOOK, MORE YOU.',
     startKicker:'START HERE', yourPhoto:'你的照片', previewAlt:'待上传照片预览', upload:'点击或拖放自拍照', uploadLimit:'JPG / PNG / HEIC · 最大 12 MB', changePhoto:'更换照片', heicReady:'HEIC 已选择，可点击生成', heicDecode:'这张 HEIC 超过线上直接上传限制，且当前浏览器无法转换；请用 Safari 打开，或先导出为 JPG。',
-    photoHint:'建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先在本机裁剪；点击生成后将工作图发送给 OpenAI API。',
+    photoHint:'建议正面、光线均匀、眉眼和嘴唇清楚可见。若人脸太小或有明确黑边，会先调整构图；点击生成后将工作图发送给 OpenAI API。',
     publicPhotoHint:'建议上传正面、光线均匀、眉眼和嘴唇清楚可见的照片。点击生成后，服务器会将工作图发送给 OpenAI API；照片和结果只作临时处理，约两小时后清除。',
     statelessPhotoHint:'照片仅在本次请求中处理，不长期保存。线上生成会将大照片等比缩至最长边 1536 像素，前后对比使用同一工作图；浏览器无法读取的 HEIC 可直接上传（不超过 3 MB）。',
     optional:'OPTIONAL', styleTitle:'想要的风格', styleIntro:'没有想法？保持「Auto」，让 AI 根据照片选择。', styleAria:'妆容风格', generate:'生成我的妆容',
-    submitNote:'生成通常需要几分钟。上传质量不合格会在调用图片 API 前提示重拍。', resultKicker:'YOUR RESULT', resultTitle:'焕新的你',
+    submitNote:'生成通常需要几分钟。可以先看效果示例，再决定是否上传照片。', resultKicker:'YOUR RESULT', resultTitle:'焕新的你',
     emptyTitle:'效果会在这里出现', emptyBody:'选择照片，开启一次为你设计的妆容体验。', preparing:'正在准备照片', progressInitial:'我们会先分析当前妆容，再生成效果图。',
     stepUpload:'照片检查', stepPlan:'选择技法', stepCreate:'生成图片', stepCompare:'核对变化',
     stageAria:'原图与生成图对比，点击照片或拖动分界线', beforeAlt:'原始照片', afterAlt:'生成的妆容照片', beforeTag:'原图', afterTag:'生成图', rangeAria:'拖动查看原图和妆容效果', compareHint:'点击照片任意位置，或按住拖动',
@@ -41,6 +42,7 @@ const translations = {
     timingAudit:'耗时', timingTotal:'服务端总计', timingOther:'本地检查与传输', timingStages:{planning:'妆容规划',generation:'图片生成',comparison:'变化对照'},
   },
   en: {
+    sampleLink:'See an example first ↑', privacySummary:'Generation sends your photo to the Mirror backend and OpenAI. The production server deletes temporary photos and results after each request; OpenAI has its own retention policy.', privacyLink:'How are photos handled? Read our privacy notice ↗', privacyFooter:'Privacy', exampleTitle:'See a real result, without the wait', exampleBadge:'Static example · No upload needed', exampleBeforeAlt:'Original photo from an early prototype example', exampleAfterAlt:'AI makeup result from an early prototype', exampleCaption:'A real generation from an early prototype, showing subtle eye and lip adjustments. This illustrates the concept, rather than validating every result from the current version. Your result will vary with your photo and selected style.',
     brandAria:'Mirror home', topNote:'YOUR MAKEUP, REIMAGINED', local:'Runs locally', publicLabel:'Online demo', eyebrow:'PERSONAL MAKEUP STUDIO',
     heroLine1:'Discover a look', heroLine2:'that feels', heroLine3:' like you.',
     heroLede:'Upload a clear selfie and choose a style if you like. We will build on your current makeup to create a result you can compare and recreate.',
@@ -50,7 +52,7 @@ const translations = {
     publicPhotoHint:'Use a front-facing photo with even light and visible brows, eyes and lips. After you click Generate, the server sends a working image to the OpenAI API. Photos and results are temporary and removed after about two hours.',
     statelessPhotoHint:'Photos are processed only during this request and are not retained. For online generation, large photos are scaled proportionally to a 1536-pixel long edge; the before/after pair uses the same working image. Undecodable HEIC files up to 3 MB can be sent directly.',
     optional:'OPTIONAL', styleTitle:'Choose a style', styleIntro:'Not sure? Leave it on Auto and let AI choose from the photo.', styleAria:'Makeup style', generate:'Generate my look',
-    submitNote:'Generation can take a few minutes. Low-quality uploads are rejected before the image API call.', resultKicker:'YOUR RESULT', resultTitle:'Your refined look',
+    submitNote:'Generation can take a few minutes. Explore the example first, then decide whether to upload.', resultKicker:'YOUR RESULT', resultTitle:'Your refined look',
     emptyTitle:'Your result will appear here', emptyBody:'Choose a photo to start your personalized makeup look.', preparing:'Preparing your photo', progressInitial:'We will review your makeup, then generate your new look.',
     stepUpload:'Check photo', stepPlan:'Choose techniques', stepCreate:'Generate image', stepCompare:'Review changes',
     stageAria:'Before and after comparison; click the photo or drag the divider', beforeAlt:'Original photo', afterAlt:'Enhanced makeup photo', beforeTag:'BEFORE', afterTag:'AFTER', rangeAria:'Drag to compare original and enhanced photos', compareHint:'Click anywhere on the photo or drag to compare',
@@ -97,7 +99,6 @@ const state = {file: null, previewUrl: null, sentImageDataUrl: null, style: 'Aut
 function renderQuota() {
   show('quota-status', Boolean(state.quota?.limited));
   if (state.quota?.limited) $('quota-status').textContent = t('quota', state.quota.visitorRemaining, state.quota.dailyRemaining);
-  document.querySelector('[data-i18n="local"]').textContent = t(state.quota?.limited ? 'publicLabel' : 'local');
   document.querySelector('[data-i18n="photoHint"]').textContent = t(
     state.quota?.mode === 'serverless' ? 'statelessPhotoHint' : state.quota?.limited ? 'publicPhotoHint' : 'photoHint');
 }

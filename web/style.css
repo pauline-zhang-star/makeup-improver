@@ -59,17 +59,7 @@ main{max-width:1350px;margin:auto;padding:0 38px 70px}.hero{height:335px;display
   flex: none;
 }
 
-/* Public example and photo-handling information. */
-.example-card{margin-top:30px;padding:24px;scroll-margin-top:20px}
-.example-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-.example-heading h2{font-family:Georgia,"Songti SC",serif;font-weight:500;font-size:25px;margin:6px 0 0}
-.example-badge{font-size:12px;color:var(--rose-dark);background:var(--pale);padding:7px 12px;border-radius:30px}
-.example-images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;max-width:640px;margin:auto}
-.example-images figure{margin:0;position:relative;min-width:0}
-.example-images img{display:block;width:100%;height:auto;border-radius:10px}
-.example-images figcaption{position:absolute;bottom:12px;left:12px;background:#fffef3ed;border-radius:5px;padding:5px 12px;font-size:13px;font-weight:600}
-.example-caption{max-width:700px;margin:18px auto 0;color:var(--muted);font-size:13px;line-height:1.8}
-.sample-link{display:block;text-align:center;margin-top:10px;color:var(--rose-dark);font-size:13px;text-decoration:underline;text-underline-offset:3px}
+/* Photo-handling information. */
 .photo-privacy{margin-top:18px;padding:14px;border-radius:10px;background:var(--pale);font-size:12px;line-height:1.8;color:var(--ink)}
 .photo-privacy p{margin:0 0 8px}.photo-privacy a,footer a{text-decoration:underline;text-underline-offset:3px}
-@media(max-width:600px){.example-card{padding:18px;margin-top:18px}.example-heading h2{font-size:22px}.example-images{gap:10px}.example-images figcaption{bottom:8px;left:8px;padding:4px 8px;font-size:12px}footer{flex-wrap:wrap;gap:12px}}
+@media(max-width:600px){footer{flex-wrap:wrap;gap:12px}}

@@ -20,23 +20,24 @@ RESERVE = '''
 local r = cjson.decode(redis.call('GET', KEYS[1]) or '{}')
 if not r.expiresAt or tonumber(r.expiresAt) <= tonumber(ARGV[1]) then return 'TEST_ACCESS_EXPIRED' end
 if redis.call('EXISTS', KEYS[3]) == 1 then return 'DUPLICATE_REQUEST' end
-if tonumber(redis.call('GET', KEYS[2]) or '0') >= 10 then return 'TEST_LIMIT_REACHED' end
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(r.limit or 10) then return 'TEST_LIMIT_REACHED' end
 redis.call('INCR', KEYS[2])
-redis.call('SET', KEYS[3], 'used', 'EX', 604800)
+redis.call('SET', KEYS[3], 'used', 'EX', 2678400)
 return 'OK'
 '''
 REFUND = '''
 if redis.call('GET', KEYS[2]) ~= 'used' then return 0 end
-redis.call('SET', KEYS[2], 'refunded', 'EX', 604800)
+redis.call('SET', KEYS[2], 'refunded', 'EX', 2678400)
 if tonumber(redis.call('GET', KEYS[1]) or '0') > 0 then redis.call('DECR', KEYS[1]) end
 return 1
 '''
 
 class TestAccess:
     __test__ = False
-    def __init__(self, store, digest=None, clock=time.time):
+    def __init__(self, store, digest=None, clock=time.time, issuer_secret=None):
         self.store, self.clock = store, clock
         self.digest = digest if digest is not None else os.environ.get('MAKEUP_TEST_CODE_SHA256', '')
+        self.issuer_secret = issuer_secret if issuer_secret is not None else os.environ.get('MAKEUP_BETA_CODE_SECRET', '')
 
     def digests(self):
         # Comma-separated hashes permit separate quotas without storing codes.
@@ -48,8 +49,25 @@ class TestAccess:
     def identity(self, digest):
         return self.store.digest('beta-code:' + digest)
 
+    def issuer(self):
+        return hashlib.sha256(self.issuer_secret.encode()).hexdigest() if re.fullmatch('[a-f0-9]{64}', self.issuer_secret) else None
+
+    def signed_policy(self, code):
+        try:
+            prefix, nonce, limit, days, signature = code.split('.')
+            if prefix != 'MIRROR' or not re.fullmatch('[a-f0-9]{24}', nonce): raise ValueError()
+            if not self.issuer() or not limit.isdecimal() or not days.isdecimal(): raise ValueError()
+            if str(int(limit)) != limit or str(int(days)) != days: raise ValueError()
+            if not 1 <= int(limit) <= 100 or not 1 <= int(days) <= 30: raise ValueError()
+            body = '.'.join([prefix, nonce, limit, days])
+            expected = hmac.new(bytes.fromhex(self.issuer_secret), body.encode(), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(signature, expected): raise ValueError()
+            return int(limit), int(days) * 86400, self.issuer()
+        except (ValueError, TypeError, AttributeError):
+            raise SubscriptionError('测试码无效 / Invalid test code.', 'INVALID_TEST_CODE', 403)
+
     def enabled(self):
-        if not self.digests():
+        if not self.digests() and not self.issuer():
             raise SubscriptionError('测试权限暂未开启 / Test access is unavailable.', 'TEST_ACCESS_DISABLED', 403)
 
     def keys(self, identity, request=''):
@@ -57,18 +75,24 @@ class TestAccess:
 
     def redeem(self, code):
         self.enabled()
-        candidate = hashlib.sha256(code.strip().encode()).hexdigest() if isinstance(code, str) and 12 <= len(code.strip()) <= 100 else ''
-        matched = next((digest for digest in self.digests() if hmac.compare_digest(candidate, digest)), None)
-        if matched is None:
+        if not isinstance(code, str) or not 12 <= len(code.strip()) <= 200:
             raise SubscriptionError('测试码无效 / Invalid test code.', 'INVALID_TEST_CODE', 403)
-        identity = self.identity(matched)
+        code = code.strip()
+        candidate = hashlib.sha256(code.encode()).hexdigest()
+        limit, duration, issuer = LIMIT, DURATION, None
+        if code.startswith('MIRROR.'):
+            limit, duration, issuer = self.signed_policy(code)
+        elif not any(hmac.compare_digest(candidate, digest) for digest in self.digests()):
+            raise SubscriptionError('测试码无效 / Invalid test code.', 'INVALID_TEST_CODE', 403)
+        identity = self.identity(candidate)
         key, _, _ = self.keys(identity)
         # Never refresh expiry or quota on another redemption, reinstall or device.
-        self.store.command('SET', key, json.dumps({'expiresAt': int(self.clock()) + DURATION}), 'NX')
+        record = {'expiresAt': int(self.clock()) + duration, 'limit': limit, 'issuer': issuer}
+        self.store.command('SET', key, json.dumps(record), 'NX')
         result = self.public(identity)
         if not result['active']:
             raise SubscriptionError('测试权限已到期 / Test access expired.', 'TEST_ACCESS_EXPIRED', 403)
-        payload = {'sub': identity, 'exp': result['expiresAt'], 'purpose': 'mirror-beta'}
+        payload = {'sub': identity, 'exp': result['expiresAt'], 'purpose': 'mirror-beta', 'issuer': issuer}
         body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
         signature = hmac.new(self.store.secret, ('beta-session:' + body).encode(), hashlib.sha256).hexdigest()
         return {**result, 'sessionToken': 'mt1.' + body + '.' + signature}
@@ -83,7 +107,8 @@ class TestAccess:
             if not hmac.compare_digest(signature, expected): raise ValueError()
             payload = json.loads(base64.urlsafe_b64decode(body))
             identity = payload['sub']
-            if payload['purpose'] != 'mirror-beta' or not any(hmac.compare_digest(identity, self.identity(digest)) for digest in self.digests()) or payload['exp'] <= self.clock(): raise ValueError()
+            allowed = (self.issuer() is not None and payload.get('issuer') == self.issuer()) if payload.get('issuer') else any(hmac.compare_digest(identity, self.identity(digest)) for digest in self.digests())
+            if payload['purpose'] != 'mirror-beta' or not allowed or payload['exp'] <= self.clock(): raise ValueError()
             if not self.public(identity)['active']: raise ValueError()
             return identity
         except (ValueError, TypeError, AttributeError, KeyError, UnicodeError) as exc:
@@ -93,10 +118,12 @@ class TestAccess:
         self.enabled()
         record = self.store.command('GET', self.keys(identity)[0])
         if not record: raise SubscriptionError('Test access unavailable.', 'INVALID_TEST_SESSION', 401)
-        expires = json.loads(record)['expiresAt']
+        record = json.loads(record)
+        expires = record['expiresAt']
+        limit = record.get('limit', LIMIT)
         used = int(self.store.command('GET', self.keys(identity)[1]) or 0)
-        return {'active': expires > self.clock(), 'productId': None, 'dailyLimit': LIMIT,
-                'remaining': max(0, LIMIT-used), 'used': used,
+        return {'active': expires > self.clock(), 'productId': None, 'dailyLimit': limit,
+                'remaining': max(0, limit-used), 'used': used,
                 'resetAt': datetime.fromtimestamp(expires, timezone.utc).isoformat(),
                 'expiresAt': expires, 'isTrial': False, 'environment': 'BetaTest'}
 

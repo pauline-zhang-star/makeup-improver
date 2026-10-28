@@ -262,7 +262,7 @@ final class SubscriptionModel: ObservableObject {
             guard let token = value.sessionToken else { throw Failure("测试响应无效 / Invalid test response") }
             try PurchaseStorage.write("betaSession", token)
             access = value; sessionToken = token
-            notice = "测试权限已开启：七天内共十次生成 / Test access enabled: ten attempts over seven days"
+            notice = "测试权限已开启 / Test access enabled"
         } catch { self.error = error.localizedDescription }
     }
 
@@ -310,7 +310,7 @@ struct MembershipView: View {
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 12) {
                         Text(text("受邀测试", "Invited testing")).font(.headline)
-                        Text(text("输入开发者提供的测试码，无需购买即可测试。每个测试码激活后七天内共十次生成，不会扣费或自动续费。开始 AI 处理后扣一次，化妆指导不另扣。请勿公开分享测试码。", "Enter your developer-provided code to test without purchasing. Each invitation grants ten attempts for seven days after activation. No charge or renewal. An attempt counts when AI processing starts; guidance is included. Please keep your code private."))
+                        Text(text("输入开发者提供的测试码，无需购买即可测试。次数和有效期由你的邀请决定，不会扣费或自动续费。开始 AI 处理后扣一次，化妆指导不另扣。请勿公开分享测试码。", "Enter your developer-provided code to test without purchasing. Your invitation determines the allowance and validity period. No charge or renewal. An attempt counts when AI processing starts; guidance is included. Please keep your code private."))
                             .font(.caption).foregroundStyle(.secondary)
                         if let access = subscriptions.access, access.environment == "BetaTest" {
                             Text(text("剩余 \(access.remaining)／\(access.dailyLimit) 次", "\(access.remaining) of \(access.dailyLimit) attempts remaining"))

@@ -86,3 +86,46 @@ def test_malformed_invitation_configuration_fails_closed():
         s.digest = value
         with pytest.raises(SubscriptionError):
             s.redeem(CODE)
+
+
+def test_custom_signed_codes_independent_limits_expiry_and_tampering():
+    from makeup_refine.beta_codes import issue
+    s, now = service()
+    s.issuer_secret = 'a' * 64
+    s.digest = ''
+    code = issue(s.issuer_secret, 3, 2)
+    other = issue(s.issuer_secret, 6, 7)
+    access = s.redeem(code)
+    assert access['dailyLimit'] == 3
+    identity = s.authenticate('Bearer ' + access['sessionToken'])
+    for _ in range(3):
+        s.reserve(identity, str(uuid.uuid4()))
+    with pytest.raises(SubscriptionError): s.reserve(identity, str(uuid.uuid4()))
+    assert s.redeem(code)['remaining'] == 0
+    assert s.redeem(other)['remaining'] == 6
+    with pytest.raises(SubscriptionError): s.redeem(code.replace('.3.2.', '.9.2.'))
+    now[0] += 2 * 86400
+    with pytest.raises(SubscriptionError): s.redeem(code)
+    with pytest.raises(SubscriptionError): s.authenticate('Bearer ' + access['sessionToken'])
+    assert s.redeem(other)['active']
+
+
+def test_signed_code_rotation_revokes_existing_sessions():
+    from makeup_refine.beta_codes import issue
+    s, _ = service()
+    s.issuer_secret = 'b' * 64
+    token = s.redeem(issue(s.issuer_secret, 1, 30))['sessionToken']
+    s.issuer_secret = 'c' * 64
+    with pytest.raises(SubscriptionError): s.authenticate('Bearer ' + token)
+
+
+def test_custom_quota_reservations_are_atomic_and_refund_once():
+    from makeup_refine.beta_codes import issue
+    s, _ = service()
+    s.issuer_secret = 'a' * 64
+    identity = s.authenticate('Bearer ' + s.redeem(issue(s.issuer_secret, 2, 30))['sessionToken'])
+    def reserve(_):
+        try: s.reserve(identity, str(uuid.uuid4())); return True
+        except SubscriptionError as exc: assert exc.code == 'TEST_LIMIT_REACHED'; return False
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        assert sum(pool.map(reserve, range(20))) == 2

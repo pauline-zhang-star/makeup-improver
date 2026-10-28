@@ -554,6 +554,8 @@ struct TutorView: View {
                     Text(text("只有你选择照片并同意处理、点击生成后，Mirror 才会将照片发送至服务及 OpenAI。", "Mirror sends a photo to its service and OpenAI only after you select it, permit processing and tap Generate."))
                     Text(text("Mirror 服务在请求结束后删除临时照片。OpenAI 的数据保留遵循其自身政策。", "Mirror deletes temporary server photos after the request. OpenAI retention follows its own policies."))
                     Text(text("App 不会自动保存照片或结果。你可以主动保存或分享效果图。", "The app does not automatically save photos or results. You can choose to save or share a look."))
+                    Link(text("完整隐私政策 / Privacy Policy", "Read the full Privacy Policy"), destination: URL(string: "https://mirror-makeup.vercel.app/privacy")!)
+                    Link(text("隐私问题联系：maybe35@163.com", "Privacy contact: maybe35@163.com"), destination: URL(string: "mailto:maybe35@163.com")!)
                     Link(text("查看 OpenAI 数据政策", "Read OpenAI data policies"), destination: URL(string: "https://platform.openai.com/docs/guides/your-data")!)
                     Text(text("允许定位后，Mirror 仅将约 11 公里精度的位置发送给 MET Norway 查询天气；只把温度和天气状况用于搭配建议。拒绝定位不影响化妆功能。", "With location permission, Mirror sends only a location rounded to about 11 km to MET Norway for weather. Only temperature and conditions are used for styling advice. Denying permission does not affect makeup features."))
                     Link("Weather data: MET Norway · CC BY 4.0", destination: URL(string: "https://api.met.no/doc/License")!)

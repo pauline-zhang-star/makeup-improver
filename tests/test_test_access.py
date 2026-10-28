@@ -56,3 +56,33 @@ def test_request_replay_and_refund_never_restore_twice():
     assert s.release(identity, request) == 0
     assert s.public(identity)['remaining'] == 10
     with pytest.raises(SubscriptionError): s.reserve(identity, request)
+
+
+def test_separate_invites_keep_independent_quotas_and_revocation():
+    s, _ = service()
+    other = 'another-private-invitation-12345'
+    first_digest = s.digest
+    second_digest = hashlib.sha256(other.encode()).hexdigest()
+    s.digest += ',' + second_digest
+    first = s.redeem(CODE)
+    second = s.redeem(other)
+    a = s.authenticate('Bearer ' + first['sessionToken'])
+    b = s.authenticate('Bearer ' + second['sessionToken'])
+    assert a != b
+    s.reserve(a, str(uuid.uuid4()))
+    assert s.public(a)['remaining'] == 9
+    assert s.public(b)['remaining'] == 10
+    s.digest = second_digest
+    with pytest.raises(SubscriptionError):
+        s.authenticate('Bearer ' + first['sessionToken'])
+    assert s.authenticate('Bearer ' + second['sessionToken']) == b
+    s.digest = first_digest + ',' + second_digest
+    assert s.redeem(CODE)['remaining'] == 9
+
+
+def test_malformed_invitation_configuration_fails_closed():
+    s, _ = service()
+    for value in [s.digest + ',', s.digest + ',invalid', ','.join([s.digest] * 101)]:
+        s.digest = value
+        with pytest.raises(SubscriptionError):
+            s.redeem(CODE)

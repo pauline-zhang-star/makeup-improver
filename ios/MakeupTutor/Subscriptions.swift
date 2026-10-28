@@ -290,6 +290,13 @@ struct MembershipView: View {
     @State private var testCode = ""
     private let rose = Color(red: 0.58, green: 0.28, blue: 0.33)
     private func text(_ zh: String, _ en: String) -> String { chinese ? zh : en }
+    private var betaBuild: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
     private var product: Product? {
         subscriptions.products.first { $0.id == "com.makeuptutor.app.\(selected).\(weekly ? "weekly" : "monthly")" }
     }
@@ -301,6 +308,30 @@ struct MembershipView: View {
                         .font(.system(size: 30, design: .serif))
                     Text(text("先看妆容效果，喜欢后再学怎么化。", "Try your look, then learn the steps."))
                         .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(text("受邀测试", "Invited testing")).font(.headline)
+                        Text(text("输入开发者提供的测试码，无需购买即可测试。每个测试码激活后七天内共十次生成，不会扣费或自动续费。开始 AI 处理后扣一次，化妆指导不另扣。请勿公开分享测试码。", "Enter your developer-provided code to test without purchasing. Each invitation grants ten attempts for seven days after activation. No charge or renewal. An attempt counts when AI processing starts; guidance is included. Please keep your code private."))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let access = subscriptions.access, access.environment == "BetaTest" {
+                            Text(text("剩余 \(access.remaining)／\(access.dailyLimit) 次", "\(access.remaining) of \(access.dailyLimit) attempts remaining"))
+                                .font(.headline).foregroundStyle(rose)
+                            Text(text("到期：", "Expires: ") + Date(timeIntervalSince1970: access.expiresAt).formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        SecureField(text("测试码", "Test code"), text: $testCode)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        Button {
+                            Task { await subscriptions.redeemTestCode(testCode); if subscriptions.access?.environment == "BetaTest" { testCode = ""; dismiss() } }
+                        } label: {
+                            Text(text("开启测试权限", "Activate test access"))
+                                .frame(maxWidth: .infinity).padding(14)
+                                .background(rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
+                        }.disabled(testCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || subscriptions.purchasing)
+                        if PurchaseStorage.read("betaSession")?.isEmpty == false {
+                            Button(text("退出测试权限", "Leave test access")) { Task { await subscriptions.leaveTestAccess() } }
+                        }
+                    }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
+                    if !betaBuild {
                     Picker(text("计费周期", "Billing period"), selection: $weekly) {
                         Text(text("按月", "Monthly")).tag(false)
                         Text(text("按周", "Weekly")).tag(true)
@@ -370,27 +401,12 @@ struct MembershipView: View {
                             }.disabled(subscriptions.loading || subscriptions.purchasing)
                         }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
                     }
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(text("受邀测试", "Invited testing")).font(.headline)
-                        Text(text("输入开发者提供的测试码，无需购买即可测试。此码七天内总共十次生成，所有使用者共享，不会自动续费。", "Enter your developer-provided code to test without purchasing. The code grants ten shared attempts over seven days, with no renewal."))
-                            .font(.caption).foregroundStyle(.secondary)
-                        SecureField(text("测试码", "Test code"), text: $testCode)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-                        Button {
-                            Task { await subscriptions.redeemTestCode(testCode); if subscriptions.access?.environment == "BetaTest" { testCode = ""; dismiss() } }
-                        } label: {
-                            Text(text("开启测试权限", "Activate test access"))
-                                .frame(maxWidth: .infinity).padding(14)
-                                .background(rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
-                        }.disabled(testCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || subscriptions.purchasing)
-                        if PurchaseStorage.read("betaSession")?.isEmpty == false {
-                            Button(text("退出测试权限", "Leave test access")) { Task { await subscriptions.leaveTestAccess() } }
-                        }
-                    }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
                     Text(text("开始 AI 处理后会扣一次额度，即使结果失败；处理前拒绝的照片不扣次数。每天额度按 UTC 零点重置，未用次数不累积。化妆指导不另外扣生成次数。符合资格的月订阅用户可试用三天；周订阅无试用。同一订阅组仅一次首次优惠。", "Once AI processing starts, the attempt uses an allowance even if it fails. Photos rejected before processing do not count. Daily allowances reset at midnight UTC and do not roll over. Guidance uses no extra generation. Eligible monthly subscribers get 3 days free; weekly plans have no trial. One introductory offer per subscription group."))
                         .font(.caption).foregroundStyle(.secondary)
+                    }
                     if let error = subscriptions.error { Text(error).font(.caption).foregroundStyle(rose) }
                     if let notice = subscriptions.notice { Text(notice).font(.caption) }
+                    if !betaBuild {
                     HStack {
                         Button(text("恢复购买", "Restore Purchases")) { Task { await subscriptions.restore() } }
                         Spacer()
@@ -400,6 +416,7 @@ struct MembershipView: View {
                     }.font(.subheadline).disabled(subscriptions.purchasing)
                     Text(text("已购买但换了设备或重新安装？点「恢复购买」，不会再次收费。", "Already purchased on another device or reinstalled? Restore Purchases restores access without a new charge."))
                         .font(.caption).foregroundStyle(.secondary)
+                    }
                     HStack {
                         Link(text("隐私政策", "Privacy Policy"), destination: URL(string: "https://mirror-makeup.vercel.app/privacy")!)
                         Spacer()
@@ -407,13 +424,13 @@ struct MembershipView: View {
                     }.font(.caption)
                 }.padding(24)
             }.background(Color(red: 0.98, green: 0.97, blue: 0.94)).tint(rose)
-                .navigationTitle(text("Mirror 会员", "Mirror Membership"))
+                .navigationTitle(betaBuild ? text("Mirror 测试体验", "Mirror Beta Access") : text("Mirror 会员", "Mirror Membership"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button(text("关闭", "Close")) { dismiss() } }
-                    ToolbarItem(placement: .topBarTrailing) { Button(text("刷新", "Refresh")) { Task { await subscriptions.load() } }.disabled(subscriptions.loading || subscriptions.purchasing) }
+                    ToolbarItem(placement: .topBarTrailing) { Button(text("刷新", "Refresh")) { Task { if betaBuild { await subscriptions.refresh() } else { await subscriptions.load() } } }.disabled(subscriptions.loading || subscriptions.purchasing) }
                 }
                 .manageSubscriptionsSheet(isPresented: $manage)
-        }.task { await subscriptions.load() }
+        }.task { if betaBuild { await subscriptions.refresh() } else { await subscriptions.load() } }
     }
 }

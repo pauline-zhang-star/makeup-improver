@@ -97,3 +97,12 @@ No real purchase or TestFlight entitlement has been validated yet. Deploy backen
 TestFlight build 3 adds an explicit developer-issued code entry, independent of StoreKit. `MAKEUP_TEST_CODE_SHA256` configures the SHA-256 digest of a randomly generated secret code. The plaintext is neither in Git nor the app. One code grants ten total shared attempts across all devices for seven days from first redemption. Redemption never resets expiry or quota. Atomic reservations, request replay prevention and one-time pre-provider refunds apply. Purpose-scoped beta sessions never authenticate as Apple subscriptions. Existing preview guidance remains included.
 
 POST `/api/test-access/redeem` exchanges the code for a signed session; authenticated GET `/api/test-access` returns remaining attempts and expiry. Clear the digest and redeploy to disable all beta sessions. This temporary permission costs actual AI usage and does not validate purchases, Apple trial eligibility or commerce compliance. Remove it before public release. Production deployment/permission activation requires explicit approval.
+
+
+## External beta invitations (2026-10-28)
+
+The beta service now accepts up to 100 comma-separated SHA-256 hashes in the existing `MAKEUP_TEST_CODE_SHA256` variable. Each distinct private code has its own ten-attempt total and seven-day expiry from first redemption. Reinstalling, reusing, or sharing a code does not refresh its quota or expiry. Removing a hash revokes its sessions; re-adding it restores the existing record, not new credit. Malformed configuration fails closed. No code is embedded in the app, committed to Git, or intended for a public LinkedIn post.
+
+TestFlight sandbox receipts and Debug builds show invited testing without loading subscription products. The private test-code entry appears first; live App Store builds retain the existing purchase flow pending the separately planned consumable-credit implementation. The receipt check affects presentation only: backend authorization and quota reservation are still required. The release declares `ITSAppUsesNonExemptEncryption=false` because the app uses system HTTPS and no custom encryption.
+
+For external testing, Xcode Cloud must archive for TestFlight and App Store (not Internal Only), then the build must pass Beta App Review. Provide a private reviewer code in review notes and disclose the invitation-only, no-charge beta access. Do not claim that a public TestFlight URL exists until Apple approves a build and the public invitation link is enabled.

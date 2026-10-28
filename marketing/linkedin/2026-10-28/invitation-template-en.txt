@@ -1,0 +1,17 @@
+Subject: Your invitation to test Mirror
+
+Thanks for offering to try Mirror!
+
+1. Install Apple’s TestFlight app on your iPhone.
+2. Open your TestFlight invitation email and accept the invitation.
+3. Install Mirror, tap the profile icon, and enter the private test code below.
+
+Your private code: [ASSIGN ONE UNUSED CODE]
+
+Your code includes 10 attempts over 7 days from activation. No purchase or automatic renewal is required. AI processing uses an attempt even if it fails; makeup guidance uses no extra attempt. Please don’t share your code.
+
+Try choosing a selfie, selecting a style, generating a look, and tapping Like to see the comparison and guidance. Only upload photos you have permission to use; photos are sent to OpenAI for AI processing.
+
+I’d love to hear what worked, what felt confusing, and whether you’d use it again. Please avoid including personal photos in public feedback.
+
+[Insert the verified TestFlight invitation link only after external review approval.]

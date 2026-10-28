@@ -1,4 +1,4 @@
-"""Temporary invitation-only beta access: shared ten attempts, seven days.
+"""Temporary invitation-only beta access: ten attempts per invitation, seven days.
 
 Independent of Apple purchases, disabled unless a code digest is configured.
 No device identifier or reusable bypass is embedded in the app.
@@ -38,8 +38,18 @@ class TestAccess:
         self.store, self.clock = store, clock
         self.digest = digest if digest is not None else os.environ.get('MAKEUP_TEST_CODE_SHA256', '')
 
+    def digests(self):
+        # Comma-separated hashes permit separate quotas without storing codes.
+        values = self.digest.split(',')
+        if not values or len(values) > 100 or any(not re.fullmatch('[a-f0-9]{64}', value.strip()) for value in values):
+            return []
+        return list(dict.fromkeys(value.strip() for value in values))
+
+    def identity(self, digest):
+        return self.store.digest('beta-code:' + digest)
+
     def enabled(self):
-        if not re.fullmatch('[a-f0-9]{64}', self.digest):
+        if not self.digests():
             raise SubscriptionError('测试权限暂未开启 / Test access is unavailable.', 'TEST_ACCESS_DISABLED', 403)
 
     def keys(self, identity, request=''):
@@ -47,9 +57,11 @@ class TestAccess:
 
     def redeem(self, code):
         self.enabled()
-        if not isinstance(code, str) or not 12 <= len(code.strip()) <= 100 or not hmac.compare_digest(hashlib.sha256(code.strip().encode()).hexdigest(), self.digest):
+        candidate = hashlib.sha256(code.strip().encode()).hexdigest() if isinstance(code, str) and 12 <= len(code.strip()) <= 100 else ''
+        matched = next((digest for digest in self.digests() if hmac.compare_digest(candidate, digest)), None)
+        if matched is None:
             raise SubscriptionError('测试码无效 / Invalid test code.', 'INVALID_TEST_CODE', 403)
-        identity = self.store.digest('beta-code:' + self.digest)
+        identity = self.identity(matched)
         key, _, _ = self.keys(identity)
         # Never refresh expiry or quota on another redemption, reinstall or device.
         self.store.command('SET', key, json.dumps({'expiresAt': int(self.clock()) + DURATION}), 'NX')
@@ -70,8 +82,8 @@ class TestAccess:
             expected = hmac.new(self.store.secret, ('beta-session:' + body).encode(), hashlib.sha256).hexdigest()
             if not hmac.compare_digest(signature, expected): raise ValueError()
             payload = json.loads(base64.urlsafe_b64decode(body))
-            identity = self.store.digest('beta-code:' + self.digest)
-            if payload['purpose'] != 'mirror-beta' or payload['sub'] != identity or payload['exp'] <= self.clock(): raise ValueError()
+            identity = payload['sub']
+            if payload['purpose'] != 'mirror-beta' or not any(hmac.compare_digest(identity, self.identity(digest)) for digest in self.digests()) or payload['exp'] <= self.clock(): raise ValueError()
             if not self.public(identity)['active']: raise ValueError()
             return identity
         except (ValueError, TypeError, AttributeError, KeyError, UnicodeError) as exc:

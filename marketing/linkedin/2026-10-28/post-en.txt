@@ -1,0 +1,11 @@
+I’m looking for a small group of iPhone beta testers for Mirror, an AI makeup try-on and guidance app I’ve been building.
+
+Choose a selfie and a makeup style, preview a look, then tap Like to explore a before-and-after comparison, makeup guidance, and outfit suggestions.
+
+I’d love honest feedback on the results, waiting time, and whether the guidance is useful. This is an early beta, so results can vary.
+
+Interested? Send me a LinkedIn message with the email address you’d like to use for the TestFlight invitation. I’ll send invitations once Apple’s external beta review is complete. No purchase is required for invited testing; a limited free testing allowance is included.
+
+Please use a photo you have permission to upload. Photos are sent to OpenAI for AI processing.
+
+#BuildInPublic #iOSDevelopment #BeautyTech #TestFlight

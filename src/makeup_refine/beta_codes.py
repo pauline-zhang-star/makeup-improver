@@ -1,9 +1,11 @@
-"""Offline private invitation issuer. No AI requests or server credentials."""
+"""Private invitation issuer; registers short codes without AI requests."""
 import argparse
 import csv
 import hashlib
 import hmac
 import os
+import re
+import httpx
 from pathlib import Path
 import secrets
 from datetime import datetime, timezone
@@ -21,8 +23,18 @@ def issue(secret, limit, days):
     return body + '.' + signature
 
 
+def register_short(code):
+    response = httpx.post('https://mirror-makeup.vercel.app/api/test-access/short-code',
+                          json={'code': code}, timeout=30)
+    response.raise_for_status()
+    value = response.json().get('code', '')
+    if not isinstance(value, str) or not re.fullmatch(r'[2-9A-HJ-NP-Z]{4}(?:-[2-9A-HJ-NP-Z]{4}){2}', value):
+        raise ValueError('后台未返回有效短码，请稍后重试。')
+    return value
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Mirror 私人测试码生成器（离线生成，不消耗 AI 费用）')
+    parser = argparse.ArgumentParser(description='Mirror 私人测试码生成器（联网登记短码，不消耗 AI 费用）')
     parser.add_argument('--attempts', type=int)
     parser.add_argument('--days', type=int)
     parser.add_argument('--directory', type=Path, default=Path(__file__).resolve().parents[2] / 'private-fixtures' / 'beta-admin')
@@ -43,7 +55,7 @@ def main():
             with os.fdopen(fd, 'w') as stream:
                 stream.write(secrets.token_hex(32))
             print('首次配置：需将 issuer-secret.txt 内容配置为 Vercel 的 MAKEUP_BETA_CODE_SECRET，再部署。未完成前生成的码不能兑换。')
-        code = issue(keyfile.read_text().strip(), attempts, days)
+        code = register_short(issue(keyfile.read_text().strip(), attempts, days))
         history = folder / 'issued-codes.csv'
         fd = os.open(history, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, 'a', newline='') as stream:
@@ -52,7 +64,7 @@ def main():
                 writer.writerow(['Created UTC', 'Code', 'Attempts', 'Days after activation'])
             writer.writerow([datetime.now(timezone.utc).isoformat(), code, attempts, days])
         print(f'\n测试码（复制整行）：\n{code}\n\n共 {attempts} 次；首次兑换后 {days} 天有效。\n同码多人共用总额度；重复兑换不重置。\n记录保存在：{history}\n不要公开分享管理密钥。')
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, httpx.HTTPError) as exc:
         parser.exit(1, f'无法生成测试码：{exc}\n')
     except (EOFError, KeyboardInterrupt):
         parser.exit(1, '\n已取消。\n')

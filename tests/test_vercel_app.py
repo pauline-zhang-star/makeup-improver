@@ -469,3 +469,18 @@ def test_beta_routes_do_not_require_apple_configuration(monkeypatch):
     monkeypatch.delenv('MAKEUP_TEST_CODE_SHA256')
     status, _, _ = request('do_GET', '/api/test-access', extra_headers={'Authorization': 'Bearer '+token})
     assert status == 403
+
+
+def test_short_code_registration_requires_valid_issuer_signature(monkeypatch):
+    from makeup_refine.beta_codes import issue
+    from test_subscriptions import Store
+    monkeypatch.setenv('MAKEUP_BETA_CODE_SECRET', 'a' * 64)
+    monkeypatch.setattr(vercel_app, '_GUARD', Store())
+    status, body, _ = request('do_POST', '/api/test-access/short-code', json.dumps({'code': 'not-a-signed-invitation'}).encode())
+    assert status == 403
+    status, body, _ = request('do_POST', '/api/test-access/short-code', json.dumps({'code': issue('a' * 64, 4, 7)}).encode())
+    assert status == 200
+    short = json.loads(body)['code']
+    assert len(short) == 14
+    status, body, _ = request('do_POST', '/api/test-access/redeem', json.dumps({'code': short}).encode())
+    assert status == 200 and json.loads(body)['remaining'] == 4

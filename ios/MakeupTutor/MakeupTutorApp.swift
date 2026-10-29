@@ -171,7 +171,7 @@ struct TutorView: View {
     @State private var membership = false
     @State private var checkingAccess = false
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("chinese") private var chinese = true
+    @AppStorage("chinese") private var chinese = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") ?? false
     @State private var selection: PhotosPickerItem?
     @State private var style = "Auto"
     @AppStorage("photoProcessingConsent.mirrorOpenAI.makeup.v1") private var consent = false

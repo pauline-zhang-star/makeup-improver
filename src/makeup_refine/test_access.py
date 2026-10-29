@@ -9,6 +9,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import time
 import uuid
 from datetime import datetime, timezone
@@ -31,6 +32,17 @@ redis.call('SET', KEYS[2], 'refunded', 'EX', 2678400)
 if tonumber(redis.call('GET', KEYS[1]) or '0') > 0 then redis.call('DECR', KEYS[1]) end
 return 1
 '''
+
+SHORT_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+REGISTER_SHORT = """
+local existing = redis.call('GET', KEYS[1])
+if existing then return existing end
+if redis.call('SET', KEYS[2], ARGV[2], 'NX') then
+  redis.call('SET', KEYS[1], ARGV[1])
+  return ARGV[1]
+end
+return ''
+"""
 
 class TestAccess:
     __test__ = False
@@ -66,6 +78,26 @@ class TestAccess:
         except (ValueError, TypeError, AttributeError):
             raise SubscriptionError('测试码无效 / Invalid test code.', 'INVALID_TEST_CODE', 403)
 
+    def shorten(self, code):
+        self.enabled()
+        if not isinstance(code, str) or len(code) > 200:
+            raise SubscriptionError('Invalid invitation.', 'INVALID_TEST_CODE', 403)
+        code = code.strip()
+        limit, duration, issuer = self.signed_policy(code)
+        canonical = hashlib.sha256(code.encode()).hexdigest()
+        record = json.dumps({'canonical': canonical, 'limit': limit, 'duration': duration, 'issuer': issuer})
+        for _ in range(5):
+            value = ''.join(secrets.choice(SHORT_ALPHABET) for _ in range(12))
+            short = '-'.join(value[i:i+4] for i in range(0, 12, 4))
+            result = self.store.command('EVAL', REGISTER_SHORT, 2,
+                'makeup:beta-short-issued:' + canonical, self.short_key(value), short, record)
+            if result: return {'code': result}
+        raise SubscriptionError('Please retry issuing the invitation.', 'TEST_CODE_UNAVAILABLE', 503)
+
+    @staticmethod
+    def short_key(value):
+        return 'makeup:beta-short:' + hashlib.sha256(value.encode()).hexdigest()
+
     def enabled(self):
         if not self.digests() and not self.issuer():
             raise SubscriptionError('测试权限暂未开启 / Test access is unavailable.', 'TEST_ACCESS_DISABLED', 403)
@@ -80,7 +112,15 @@ class TestAccess:
         code = code.strip()
         candidate = hashlib.sha256(code.encode()).hexdigest()
         limit, duration, issuer = LIMIT, DURATION, None
-        if code.startswith('MIRROR.'):
+        compact = code.upper().replace('-', '')
+        short_record = self.store.command('GET', self.short_key(compact)) if len(compact) == 12 and all(c in SHORT_ALPHABET for c in compact) else None
+        if short_record:
+            policy = json.loads(short_record)
+            if not self.issuer() or policy['issuer'] != self.issuer():
+                raise SubscriptionError('Invalid invitation.', 'INVALID_TEST_CODE', 403)
+            candidate = policy['canonical']
+            limit, duration, issuer = policy['limit'], policy['duration'], policy['issuer']
+        elif code.startswith('MIRROR.'):
             limit, duration, issuer = self.signed_policy(code)
         elif not any(hmac.compare_digest(candidate, digest) for digest in self.digests()):
             raise SubscriptionError('测试码无效 / Invalid test code.', 'INVALID_TEST_CODE', 403)

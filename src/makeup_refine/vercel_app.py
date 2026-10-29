@@ -279,12 +279,14 @@ class VercelHandler(WebHandler):
 
     def do_POST(self):
         started_at = time.perf_counter()
-        if self.path == '/api/test-access/redeem':
+        if self.path in ('/api/test-access/redeem', '/api/test-access/short-code'):
             try:
                 length = int(self.headers.get('Content-Length', '0'))
                 if not 0 < length <= 512: raise ValueError()
                 body = json.loads(self.rfile.read(length))
-                self.respond(200, TestAccess(guard()).redeem(body.get('code')))
+                service = TestAccess(guard())
+                action = service.shorten if self.path.endswith('/short-code') else service.redeem
+                self.respond(200, action(body.get('code')))
             except SubscriptionError as exc:
                 self.respond(exc.status, {'error': str(exc), 'code': exc.code})
             except (ValueError, TypeError, AttributeError):

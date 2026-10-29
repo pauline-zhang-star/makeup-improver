@@ -129,3 +129,37 @@ def test_custom_quota_reservations_are_atomic_and_refund_once():
         except SubscriptionError as exc: assert exc.code == 'TEST_LIMIT_REACHED'; return False
     with ThreadPoolExecutor(max_workers=16) as pool:
         assert sum(pool.map(reserve, range(20))) == 2
+
+
+def test_short_codes_preserve_original_quota_expiry_and_session():
+    from makeup_refine.beta_codes import issue
+    s, now = service()
+    s.issuer_secret = 'a' * 64
+    long_code = issue(s.issuer_secret, 3, 7)
+    first = s.redeem(long_code)
+    identity = s.authenticate('Bearer ' + first['sessionToken'])
+    s.reserve(identity, str(uuid.uuid4()))
+    now[0] += 3600
+    short = s.shorten(long_code)['code']
+    assert len(short) == 14
+    access = s.redeem(short.lower().replace('-', ''))
+    assert access['remaining'] == 2 and access['expiresAt'] == first['expiresAt']
+    assert s.authenticate('Bearer ' + access['sessionToken']) == identity
+    assert s.shorten(long_code)['code'] == short
+    with pytest.raises(SubscriptionError): s.shorten(long_code[:-1] + 'x')
+    s.issuer_secret = 'b' * 64
+    with pytest.raises(SubscriptionError): s.redeem(short)
+
+
+def test_short_issuance_is_atomic_and_distinct_invites_stay_separate():
+    from makeup_refine.beta_codes import issue
+    s, _ = service()
+    s.issuer_secret = 'a' * 64
+    long_code = issue(s.issuer_secret, 2, 30)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(lambda _: s.shorten(long_code)['code'], range(25)))
+    assert len(set(results)) == 1
+    other = s.shorten(issue(s.issuer_secret, 5, 7))['code']
+    assert other != results[0]
+    assert s.redeem(results[0])['dailyLimit'] == 2
+    assert s.redeem(other)['dailyLimit'] == 5

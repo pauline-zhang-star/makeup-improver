@@ -6,6 +6,13 @@ struct Step: Decodable {
     let area: String
     let instruction: String
     let instruction_zh: String?
+    func localizedInstruction(chinese: Bool) -> String {
+        if chinese { return instruction_zh ?? instruction }
+        if instruction.unicodeScalars.contains(where: { (0x3400...0x9fff).contains(Int($0.value)) }) {
+            return "The English instructions are unavailable for this saved result."
+        }
+        return instruction
+    }
 }
 struct Callout: Decodable {
     let number: Int

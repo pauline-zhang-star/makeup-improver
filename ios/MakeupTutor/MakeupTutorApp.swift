@@ -402,10 +402,40 @@ struct TutorView: View {
                 }
             }.clipShape(RoundedRectangle(cornerRadius: 22))
                 .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(Studio.ink.opacity(0.08), lineWidth: 1) }
+            if model.photo == nil { photoExamples }
             if model.result == nil && !model.busy {
                 Text(text("正面、均匀光线，眉眼和嘴唇清楚可见。", "Face the camera in even light, with brows, eyes and lips visible.")).font(.system(size: 11)).foregroundStyle(Studio.muted)
             }
         }
+    }
+    private var photoExamples: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(text("选对照片，效果更好", "A good photo makes a difference"))
+                .font(.system(size: 15, weight: .medium, design: .serif))
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                photoExample(0, text("推荐：清晰正脸", "Use: clear, front-facing"), text("均匀光线，五官完整入镜", "Even light, whole face visible"))
+                photoExample(1, text("避免：光线太暗", "Avoid: too dark"), text("面向窗户或柔和光源", "Face a window or soft light"))
+                photoExample(2, text("避免：明显侧脸", "Avoid: side profile"), text("看向镜头，双眼清楚可见", "Look at the camera, both eyes visible"))
+                photoExample(3, text("避免：五官被遮挡", "Avoid: covered features"), text("拨开头发，露出眉眼和嘴唇", "Keep hair clear of brows, eyes and lips"))
+            }
+            Text(text("AI 示例 · 单人、对焦清晰，避免强滤镜；已有妆容也可以。", "AI examples · One person, sharp focus, no heavy filters. Existing makeup is welcome."))
+                .font(.system(size: 11)).foregroundStyle(Studio.muted)
+        }
+    }
+    private func photoExample(_ kind: Int, _ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            GeometryReader { geometry in
+                Image("PhotoExamples").resizable()
+                    .frame(width: geometry.size.width * 2, height: geometry.size.height * 2)
+                    .offset(x: kind % 2 == 0 ? 0 : -geometry.size.width,
+                            y: kind < 2 ? 0 : -geometry.size.height)
+            }.aspectRatio(1, contentMode: .fit).clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
+            Label(title, systemImage: kind == 0 ? "checkmark.circle.fill" : "xmark.circle")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(kind == 0 ? Color(red: 0.26, green: 0.43, blue: 0.34) : Studio.rose)
+            Text(detail).font(.system(size: 11)).foregroundStyle(Studio.muted).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var progressPanel: some View {
         ZStack {
@@ -515,7 +545,7 @@ struct TutorView: View {
                     Text(String(format: "%02d", index + 1)).font(.system(size: 24, weight: .regular, design: .serif)).foregroundStyle(Studio.rose.opacity(0.7))
                     VStack(alignment: .leading, spacing: 8) {
                         Text(chinese ? areas[step.area] ?? step.area : step.area.capitalized).font(.system(size: 15, weight: .medium))
-                        Text(chinese ? step.instruction_zh ?? step.instruction : step.instruction).font(.system(size: 13)).lineSpacing(5).foregroundStyle(Studio.muted)
+                        Text(step.localizedInstruction(chinese: chinese)).font(.system(size: 13)).lineSpacing(5).foregroundStyle(Studio.muted)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.padding(.vertical, 18)
                 Rectangle().fill(Studio.ink.opacity(0.1)).frame(height: 1)

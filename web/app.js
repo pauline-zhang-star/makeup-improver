@@ -10,6 +10,7 @@ const areaNames = {
 };
 const translations = {
   zh: {
+    photoExamplesTitle:'选对照片，效果更好', photoGood:'✓ 推荐：清晰正脸', photoGoodTip:'均匀光线，五官完整入镜', photoDark:'× 避免：光线太暗', photoDarkTip:'面向窗户或柔和光源', photoSide:'× 避免：明显侧脸', photoSideTip:'看向镜头，双眼清楚可见', photoCovered:'× 避免：五官被遮挡', photoCoveredTip:'拨开头发，露出眉眼和嘴唇', photoIllustrations:'AI 示例 · 单人、对焦清晰，避免强滤镜；已有妆容也可以。',
     privacySummary:'生成会将照片发送至 Mirror 后端和 OpenAI。线上服务器在请求结束后删除临时照片与结果；OpenAI 的保留政策另行适用。', privacyLink:'照片如何处理？查看隐私说明 ↗', privacyFooter:'隐私说明',
     brandAria:'Mirror 首页', topNote:'YOUR MAKEUP, REIMAGINED', local:'本机运行', publicLabel:'在线体验', eyebrow:'PERSONAL MAKEUP STUDIO',
     heroLine1:'看见更适合', heroLine2:'自己的', heroLine3:'妆容。',
@@ -42,6 +43,7 @@ const translations = {
     timingAudit:'耗时', timingTotal:'服务端总计', timingOther:'本地检查与传输', timingStages:{planning:'妆容规划',generation:'图片生成',comparison:'变化对照'},
   },
   en: {
+    photoExamplesTitle:'A good photo makes a difference', photoGood:'✓ Use: clear, front-facing', photoGoodTip:'Even light, whole face visible', photoDark:'× Avoid: too dark', photoDarkTip:'Face a window or soft light', photoSide:'× Avoid: side profile', photoSideTip:'Look at the camera, both eyes visible', photoCovered:'× Avoid: covered features', photoCoveredTip:'Keep hair clear of brows, eyes and lips', photoIllustrations:'AI examples · One person, sharp focus, no heavy filters. Existing makeup is welcome.',
     privacySummary:'Generation sends your photo to the Mirror backend and OpenAI. The production server deletes temporary photos and results after each request; OpenAI has its own retention policy.', privacyLink:'How are photos handled? Read our privacy notice ↗', privacyFooter:'Privacy',
     brandAria:'Mirror home', topNote:'YOUR MAKEUP, REIMAGINED', local:'Runs locally', publicLabel:'Online demo', eyebrow:'PERSONAL MAKEUP STUDIO',
     heroLine1:'Discover a look', heroLine2:'that feels', heroLine3:' like you.',
@@ -65,7 +67,7 @@ const translations = {
     timeoutPartial:'The enhanced image passed local checks, but the makeup-step comparison timed out. You can still drag to compare; verified how-to steps are unavailable for this image.',
     timeoutStageLabels:{planning:'makeup planning', generation:'image generation', generation_preparation:'image preparation', review:'local image review', comparison:'change comparison', preflight:'photo checking', unknown:'processing'},
     progressCheckDetail:'Comparing facial features and visible makeup changes with the original.', progressDrawDetail:(n)=>`${n} techniques selected. Generating one complete image.`, progressAnalyzeDetail:'Checking the photo, then choosing techniques for the style.',
-    retryRead:'Retrying the result…', displayError:'The result was saved, but the page could not show it. Open the full test record.', count:(n)=>`${n} steps`, guideFallback:'See the full test record.', legacyGuide:'This older result has no saved Chinese instructions; the English original is shown.',
+    retryRead:'Retrying the result…', displayError:'The result was saved, but the page could not show it. Open the full test record.', count:(n)=>`${n} steps`, guideFallback:'See the full test record.', legacyGuide:'This older result has no saved Chinese instructions; the English original is shown.', englishGuideUnavailable:'The English instructions are unavailable for this saved result.',
     quota:(visitor,total)=>`Anonymous visitor: ${visitor} tries left today; ${total} left site-wide. Resets at 00:00 UTC.`, visitorLimit:'Your two tries for today are used up. Please return tomorrow.', dailyLimit:(limit)=>`The site-wide limit of ${limit} tries has been reached today. Please return tomorrow.`, busy:'Another photo is being processed. Try again shortly; this does not use a try.', resultExpired:'This photo result has expired and was removed. Upload a new photo to try again.',
     success:'Look generated. Steps describe the visible changes between the original and result. Click anywhere on the photo or drag to compare.',
     reframing:(n)=>`The model resized the face by ${n > 0 ? '+' : ''}${n}%, so it no longer aligns with the original. This is a diagnostic result, not a final look.`,
@@ -212,6 +214,7 @@ function chooseFile(file) {
   show('photo-preview', true);
   show('photo-action', true);
   show('upload-placeholder', false);
+  show('photo-examples', false);
   $('generate').disabled = false;
 }
 
@@ -557,7 +560,8 @@ function renderGuides(job) {
     li.append(make('span', index + 1, 'guide-num'));
     const copy = make('div');
     copy.append(make('strong', areaNames[language][guide.area] || guide.area));
-    copy.append(make('p', (language === 'zh' && guide.instruction_zh) || guide.instruction || t('guideFallback')));
+    const instruction = (language === 'zh' && guide.instruction_zh) || guide.instruction || t('guideFallback');
+    copy.append(make('p', language === 'en' && /[\u3400-\u9fff]/u.test(instruction) ? t('englishGuideUnavailable') : instruction));
     li.append(copy);
     list.append(li);
   }

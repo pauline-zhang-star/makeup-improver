@@ -42,7 +42,7 @@ MAX_REQUEST_BYTES = 17 * 1024 * 1024
 MIME = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
         '.js': 'text/javascript; charset=utf-8', '.png': 'image/png',
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
-ASSET_ROUTES = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/privacy': 'privacy.html', '/privacy.css': 'privacy.css', '/mirror-og-v1.png': 'mirror-og-v1.png'}
+ASSET_ROUTES = {'/assets/photo-examples-v2.png': 'assets/photo-examples-v2.png', '/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/privacy': 'privacy.html', '/privacy.css': 'privacy.css', '/mirror-og-v1.png': 'mirror-og-v1.png'}
 JOB_PROCESSES = {}
 JOB_PHASES = {}
 JOB_LAST_STATUS = {}

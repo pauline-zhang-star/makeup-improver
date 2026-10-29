@@ -1,7 +1,7 @@
 """Image-first product styles and observed-change contracts."""
 from enum import Enum
 from typing import Literal, Optional, get_args
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, field_validator
 from .models import StrictModel
 
 
@@ -20,23 +20,32 @@ LookArea = Literal['eyebrows', 'eyeliner', 'lashes', 'eyeshadow', 'nose_contour'
 LOOK_AREAS = get_args(LookArea)
 
 
-class ObservedStep(StrictModel):
+class InstructionLanguage(StrictModel):
+    @field_validator('instruction', check_fields=False)
+    @classmethod
+    def english_instruction(cls, value):
+        if value and any('\u3400' <= char <= '\u9fff' for char in value):
+            raise ValueError('instruction must be English; put Chinese only in instruction_zh.')
+        return value
+
+
+class ObservedStep(InstructionLanguage):
     area: LookArea
     changed: bool
     confidence: float = Field(ge=0, le=1)
     before: str = Field(min_length=1, max_length=400)
     after: str = Field(min_length=1, max_length=400)
-    instruction: str = Field(min_length=1, max_length=700)
+    instruction: str = Field(min_length=1, max_length=700, description="English-only reproduction instruction; never Chinese.")
     instruction_zh: Optional[str] = Field(default=None, max_length=700)
 
 
-class AreaComparison(StrictModel):
+class AreaComparison(InstructionLanguage):
     area: LookArea
     change: Literal['changed', 'unchanged', 'uncertain']
     confidence: float = Field(ge=0, le=1)
     before: str = Field(min_length=1, max_length=400)
     after: str = Field(min_length=1, max_length=400)
-    instruction: Optional[str] = Field(max_length=700)
+    instruction: Optional[str] = Field(max_length=700, description="English-only reproduction instruction; never Chinese.")
     instruction_zh: Optional[str] = Field(default=None, max_length=700)
 
     @model_validator(mode='after')

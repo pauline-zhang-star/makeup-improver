@@ -250,6 +250,8 @@ def comparison_prompt(*, include_schema=True):
         'explicitly in before/after evidence; never silently dismiss the region. '
         'Review areas are a checklist of locations only, not a requested style or intended result. '
 
+        'Language contract: instruction MUST be English only, regardless of the photo, user language or other context. '
+        'Chinese belongs exclusively in instruction_zh. Never put Chinese in both fields. '
         'Only for changed areas give a concise, actionable instruction '
         'for reproducing that change FROM THE ORIGINAL makeup: identify placement, direction, shape, '
         'relative color and blending or application technique where visible. Work with existing makeup. '

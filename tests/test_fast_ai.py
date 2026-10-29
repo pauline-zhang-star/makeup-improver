@@ -136,3 +136,17 @@ def test_analysis_and_review_can_use_separate_models_without_losing_checks(monke
     finally:provider.close()
     assert [p['model'] for p in requests]==['gpt-5.6-luna','gpt-4.1-mini']
     assert requests[0]['reasoning_effort']=='none' and 'reasoning_effort' not in requests[1]
+
+
+def test_review_rejects_chinese_in_english_instruction_field():
+    rows = [dict(a=area, c='unchanged', p=.95, b='No change', t='No change', i=None, z=None)
+            for area in LOOK_AREAS]
+    blush = next(row for row in rows if row['a'] == 'blush')
+    blush.update(c='changed', i='将腮红轻扫在苹果肌上。', z='将腮红轻扫在苹果肌上。')
+    with pytest.raises(ValueError, match='instruction must be English'):
+        comparison_decode(json.dumps(dict(p=[], a=rows)))
+    blush['i'] = 'Sweep blush over the apples of the cheeks and blend outward.'
+    result = comparison_decode(json.dumps(dict(p=[], a=rows)))
+    assert result.visible_steps()[0].instruction == blush['i']
+    assert result.visible_steps()[0].instruction_zh == blush['z']
+    assert 'instruction MUST be English only' in comparison_contract()[0]

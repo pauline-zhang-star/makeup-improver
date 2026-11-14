@@ -288,6 +288,7 @@ struct MembershipView: View {
     @State private var selected = "basic"
     @State private var manage = false
     @State private var testCode = ""
+    @State private var testingSubscriptions = false
     private let rose = Color(red: 0.58, green: 0.28, blue: 0.33)
     private func text(_ zh: String, _ en: String) -> String { chinese ? zh : en }
     private var betaBuild: Bool {
@@ -297,6 +298,7 @@ struct MembershipView: View {
         return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
         #endif
     }
+    private var showSubscriptions: Bool { !betaBuild || testingSubscriptions }
     private var product: Product? {
         subscriptions.products.first { $0.id == "com.makeuptutor.app.\(selected).\(weekly ? "weekly" : "monthly")" }
     }
@@ -331,7 +333,24 @@ struct MembershipView: View {
                             Button(text("退出测试权限", "Leave test access")) { Task { await subscriptions.leaveTestAccess() } }
                         }
                     }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
-                    if !betaBuild {
+                    if betaBuild {
+                        Button {
+                            testingSubscriptions.toggle()
+                            Task {
+                                if testingSubscriptions {
+                                    await subscriptions.leaveTestAccess()
+                                    await subscriptions.load()
+                                } else { await subscriptions.refresh() }
+                            }
+                        } label: {
+                            Label(text(testingSubscriptions ? "收起订阅测试" : "测试 Apple 订阅", testingSubscriptions ? "Hide subscription testing" : "Test Apple subscriptions"), systemImage: "cart")
+                        }.disabled(subscriptions.loading || subscriptions.purchasing)
+                        if testingSubscriptions {
+                            Text(text("TestFlight 内购使用 Apple Sandbox，不会真实扣费。测试时已退出邀请码权限，以下剩余额度来自订阅。AI 生成仍会产生开发者 API 费用。", "TestFlight purchases use Apple Sandbox and do not charge you. Invitation access is disabled during this test so the allowance below comes from your subscription. AI generation still incurs developer API costs."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if showSubscriptions {
                     Picker(text("计费周期", "Billing period"), selection: $weekly) {
                         Text(text("按月", "Monthly")).tag(false)
                         Text(text("按周", "Weekly")).tag(true)
@@ -406,7 +425,7 @@ struct MembershipView: View {
                     }
                     if let error = subscriptions.error { Text(error).font(.caption).foregroundStyle(rose) }
                     if let notice = subscriptions.notice { Text(notice).font(.caption) }
-                    if !betaBuild {
+                    if showSubscriptions {
                     HStack {
                         Button(text("恢复购买", "Restore Purchases")) { Task { await subscriptions.restore() } }
                         Spacer()
@@ -428,9 +447,9 @@ struct MembershipView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button(text("关闭", "Close")) { dismiss() } }
-                    ToolbarItem(placement: .topBarTrailing) { Button(text("刷新", "Refresh")) { Task { if betaBuild { await subscriptions.refresh() } else { await subscriptions.load() } } }.disabled(subscriptions.loading || subscriptions.purchasing) }
+                    ToolbarItem(placement: .topBarTrailing) { Button(text("刷新", "Refresh")) { Task { if showSubscriptions { await subscriptions.load() } else { await subscriptions.refresh() } } }.disabled(subscriptions.loading || subscriptions.purchasing) }
                 }
                 .manageSubscriptionsSheet(isPresented: $manage)
-        }.task { if betaBuild { await subscriptions.refresh() } else { await subscriptions.load() } }
+        }.task { if showSubscriptions { await subscriptions.load() } else { await subscriptions.refresh() } }
     }
 }

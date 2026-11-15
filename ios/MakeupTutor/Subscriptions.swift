@@ -377,7 +377,7 @@ struct MembershipView: View {
                     }
                     if let access = subscriptions.access {
                         if access.environment == "BetaTest" {
-                            Text(text("测试权限剩余 \(access.remaining)／10 次 · 七天总额度，不按日重置", "Test access: \(access.remaining) of 10 attempts remaining · Seven-day total, no daily reset"))
+                            Text(text("测试权限剩余 \(access.remaining)／\(access.dailyLimit) 次 · 邀请总额度，不按日重置", "Test access: \(access.remaining) of \(access.dailyLimit) attempts remaining · Invitation total, no daily reset"))
                                 .font(.headline).foregroundStyle(rose)
                         } else {
                         Text(access.active
@@ -385,7 +385,7 @@ struct MembershipView: View {
                              : text("当前没有有效订阅", "No active subscription"))
                         }
                         if let reset = ISO8601DateFormatter().date(from: access.resetAt) {
-                            Text(access.environment == "BetaTest" ? text("测试权限到期：", "Test access expires: ") : text("下次额度重置：", "Allowance resets: ") + reset.formatted(date: .abbreviated, time: .shortened))
+                            Text((access.environment == "BetaTest" ? text("测试权限到期：", "Test access expires: ") : text("下次额度重置：", "Allowance resets: ")) + reset.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }

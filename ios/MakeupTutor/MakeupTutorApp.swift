@@ -21,6 +21,7 @@ final class TutorModel: ObservableObject {
     @Published var guidanceWaitSeconds: Double?
     @Published var error: String?
     @Published var startedAt: Date?
+    private var previewAccessToken: String?
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
@@ -35,6 +36,7 @@ final class TutorModel: ObservableObject {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         photo = UIGraphicsImageRenderer(size: size, format: format).image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
         before = nil; after = nil; result = nil; error = nil; disliked = false
+        previewAccessToken = nil
         previewWaitSeconds = nil; guidanceWaitSeconds = nil
     }
     func generate(endpoint: String, style: String, subscriptionToken: String) async {
@@ -73,6 +75,7 @@ final class TutorModel: ObservableObject {
                 throw Failure("无法读取效果图，请重试 / Could not load the comparison images")
             }
             before = original; after = enhanced; result = job
+            previewAccessToken = subscriptionToken
             previewWaitSeconds = Date().timeIntervalSince(startedAt ?? Date())
         } catch { self.error = error.localizedDescription }
     }
@@ -94,7 +97,11 @@ final class TutorModel: ObservableObject {
             var request = URLRequest(url: base.appendingPathComponent("api/guidance"))
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            guard let subscriptionToken else { throw Failure("请刷新订阅状态 / Please refresh your subscription") }
+            // The server validates this credential again. A transient allowance
+            // refresh must not discard access to an already generated preview.
+            guard let subscriptionToken = subscriptionToken ?? previewAccessToken else {
+                throw Failure("请打开会员页刷新使用权限，再重试 / Open Membership to refresh access, then retry")
+            }
             request.setValue("Bearer " + subscriptionToken, forHTTPHeaderField: "Authorization")
             request.setValue("ios", forHTTPHeaderField: "X-Mirror-Client")
             var payload: [String: Any] = ["guidanceToken": token, "originalUrl": beforeURL, "afterUrl": afterURL]
@@ -365,7 +372,7 @@ struct TutorView: View {
                                 .font(.caption).padding(.bottom, 20)
                         } else {
                             HStack(spacing: 12) {
-                                Button { Task { await subscriptions.refresh(); await model.like(endpoint: endpoint, subscriptionToken: subscriptions.sessionToken, weather: stylingWeather.context) } } label: {
+                                Button { Task { await model.like(endpoint: endpoint, subscriptionToken: subscriptions.sessionToken, weather: stylingWeather.context) } } label: {
                                     Text(text("♡ 喜欢 · 学怎么化", "♡ Like · Learn"))
                                         .frame(maxWidth: .infinity).padding(.vertical, 15)
                                         .background(Studio.rose, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
